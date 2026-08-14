@@ -1,4 +1,13 @@
 {
-  "generatedAt": "2026-08-14T17:35:52.045105+00:00",
-  "files": []
+  "generatedAt": "2026-08-14T19:03:22.055861+00:00",
+  "files": [
+    {
+      "name": "레짐.jpg",
+      "path": "files/레짐.jpg",
+      "extension": "jpg",
+      "category": "이미지",
+      "size": 2068218,
+      "modified": "2026-08-14T19:03:13Z"
+    }
+  ]
 }
