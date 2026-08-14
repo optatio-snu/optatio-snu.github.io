@@ -33,6 +33,41 @@ const rotateImage = document.querySelector("#rotate-image");
 
 const memberStatus = document.querySelector("#member-status");
 const memberButton = document.querySelector("#member-button");
+const membersButton = document.querySelector("#members-button");
+const filesTab = document.querySelector("#files-tab");
+const discussionTab = document.querySelector("#discussion-tab");
+const filesView = document.querySelector("#files-view");
+const discussionView = document.querySelector("#discussion-view");
+const discussionList = document.querySelector("#discussion-list");
+const discussionEmpty = document.querySelector("#discussion-empty");
+const discussionScopeText = document.querySelector("#discussion-scope-text");
+const discussionPermission = document.querySelector("#discussion-permission");
+const discussionAllButton = document.querySelector("#discussion-all-button");
+const discussionClearDocument = document.querySelector("#discussion-clear-document");
+const newThreadButton = document.querySelector("#new-thread-button");
+const threadFormDialog = document.querySelector("#thread-form-dialog");
+const threadForm = document.querySelector("#thread-form");
+const threadTitle = document.querySelector("#thread-title");
+const threadDocument = document.querySelector("#thread-document");
+const threadBody = document.querySelector("#thread-body");
+const threadFormMessage = document.querySelector("#thread-form-message");
+const threadSubmit = document.querySelector("#thread-submit");
+const threadDialog = document.querySelector("#thread-dialog");
+const threadDetailTitle = document.querySelector("#thread-detail-title");
+const threadDetailMeta = document.querySelector("#thread-detail-meta");
+const threadDetailBody = document.querySelector("#thread-detail-body");
+const threadDelete = document.querySelector("#thread-delete");
+const commentList = document.querySelector("#comment-list");
+const commentForm = document.querySelector("#comment-form");
+const commentBody = document.querySelector("#comment-body");
+const commentSubmit = document.querySelector("#comment-submit");
+const commentPermission = document.querySelector("#comment-permission");
+const membersDialog = document.querySelector("#members-dialog");
+const memberApproveForm = document.querySelector("#member-approve-form");
+const memberApproveLogin = document.querySelector("#member-approve-login");
+const memberApproveSubmit = document.querySelector("#member-approve-submit");
+const membersList = document.querySelector("#members-list");
+const membersMessage = document.querySelector("#members-message");
 
 const adminButton = document.querySelector("#admin-button");
 const adminStatus = document.querySelector("#admin-status");
@@ -102,6 +137,10 @@ let toastTimer = null;
 let memberSessionToken = sessionStorage.getItem(MEMBER_SESSION_KEY) || "";
 let memberUser = null;
 let memberAuthLoading = false;
+let currentView = "files";
+let discussionDocumentFilter = "";
+let currentThread = null;
+let discussionsLoading = false;
 let memberAuthInitialized = false;
 let pendingUploadPreviewUrls = [];
 
@@ -140,7 +179,12 @@ function renderMemberState() {
   }
 
   if (memberUser?.login) {
-    memberStatus.textContent = `회원 · @${memberUser.login}`;
+    const label = memberUser.admin
+      ? "관리자 회원"
+      : memberUser.approved
+        ? "승인 회원"
+        : memberUser.status === "blocked" ? "차단 회원" : "승인 대기";
+    memberStatus.textContent = `${label} · @${memberUser.login}`;
     memberStatus.classList.remove("hidden");
     memberButton.textContent = "로그아웃";
     memberButton.title = "이 브라우저 탭의 회원 세션을 종료합니다.";
@@ -150,6 +194,9 @@ function renderMemberState() {
     memberButton.textContent = "GitHub로 로그인";
     memberButton.title = "GitHub 계정으로 문건함 회원 인증";
   }
+
+  if (membersButton) membersButton.classList.toggle("hidden", !memberUser?.admin);
+  renderDiscussionPermission();
 }
 
 function clearMemberSession(showMessage = false) {
@@ -191,7 +238,11 @@ async function validateMemberSession() {
       return false;
     }
 
-    memberUser = data.user;
+    memberUser = {
+      ...data.user,
+      ...(data.member || {}),
+      login: data.user.login
+    };
     renderAdminState();
     return true;
   } catch (error) {
@@ -452,7 +503,11 @@ function isAdmin() {
 }
 
 function isMemberEditor() {
-  return Boolean(memberUser?.login && memberSessionToken);
+  return Boolean(memberUser?.login && memberSessionToken && memberUser?.approved && memberUser?.status !== "blocked");
+}
+
+function canDiscuss() {
+  return isMemberEditor();
 }
 
 function canEdit() {
@@ -465,7 +520,7 @@ function currentUploadMaxBytes() {
 
 function editorModeLabel() {
   if (isAdmin()) return "관리자 모드";
-  if (isMemberEditor()) return `회원 편집 · @${memberUser.login}`;
+  if (isMemberEditor()) return `승인 회원 · @${memberUser.login}`;
   return "";
 }
 
@@ -508,11 +563,11 @@ function renderAdminState() {
   if (uploadLimitNote) {
     uploadLimitNote.textContent = isAdmin()
       ? "여러 파일 동시 선택 가능 · 파일당 95 MiB 이하"
-      : "회원 편집 · 여러 파일 동시 선택 가능 · 파일당 20 MiB 이하";
+      : "승인 회원 · 여러 파일 동시 선택 가능 · 파일당 20 MiB 이하";
   }
 
   if (deleteSubmit) {
-    deleteSubmit.classList.toggle("hidden", !active);
+    deleteSubmit.classList.toggle("hidden", !editable);
   }
 
   renderFiles();
@@ -653,6 +708,7 @@ function renderFiles() {
           <div class="file-meta">${humanSize(file.size)}<br>${formatDate(file.modified)}</div>
           <div class="card-actions">
             ${canPreview(file) ? `<button class="action-button preview-button" type="button" data-path="${safePath}">보기</button>` : ""}
+            <button class="action-button discussion-file-button" type="button" data-path="${safePath}">토론</button>
             <a class="action-button" href="${url}" download>받기</a>
             ${canEdit() ? `<button class="action-button manage-button" type="button" data-path="${safePath}">관리</button>` : ""}
           </div>
@@ -678,6 +734,10 @@ function renderFiles() {
       const file = allFiles.find(item => item.path === button.dataset.path);
       if (file) openManageDialog(file);
     });
+  });
+
+  grid.querySelectorAll(".discussion-file-button").forEach(button => {
+    button.addEventListener("click", () => openDiscussionView(button.dataset.path));
   });
 
   grid.querySelectorAll(".favorite-button").forEach(button => {
@@ -961,6 +1021,14 @@ async function memberMoveFile(oldPath, newPath) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ oldPath, newPath })
+  });
+}
+
+async function memberDeleteFile(path) {
+  return memberRequest("/api/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path })
   });
 }
 
@@ -1406,8 +1474,8 @@ async function saveTextCurrentFile() {
 
 async function deleteCurrentFile() {
   if (!currentManageFile) return;
-  if (!isAdmin()) {
-    manageMessage.textContent = "파일 삭제는 관리자 모드에서만 가능합니다.";
+  if (!canEdit()) {
+    manageMessage.textContent = "관리자가 승인한 회원만 파일을 삭제할 수 있습니다.";
     return;
   }
   const file = currentManageFile;
@@ -1417,8 +1485,13 @@ async function deleteCurrentFile() {
   setButtonBusy(deleteSubmit, true, "삭제 중…");
   manageMessage.textContent = "삭제하는 중입니다…";
   try {
-    const meta = await getContentMeta(file.path);
-    await deleteFile(file.path, meta.sha, `docs: delete ${file.path}`);
+    if (isAdmin()) {
+      const meta = await getContentMeta(file.path);
+      await deleteFile(file.path, meta.sha, `docs: delete ${file.path}`);
+    } else {
+      await memberDeleteFile(file.path);
+    }
+
     if (metadata.files[file.path]) {
       delete metadata.files[file.path];
       try {
@@ -1491,6 +1564,307 @@ function openAdminDialog() {
   adminDialog.showModal();
 }
 
+function setView(view) {
+  currentView = view === "discussion" ? "discussion" : "files";
+  const discussionActive = currentView === "discussion";
+  filesView.classList.toggle("hidden", discussionActive);
+  discussionView.classList.toggle("hidden", !discussionActive);
+  filesTab.classList.toggle("active", !discussionActive);
+  discussionTab.classList.toggle("active", discussionActive);
+  filesTab.setAttribute("aria-pressed", String(!discussionActive));
+  discussionTab.setAttribute("aria-pressed", String(discussionActive));
+  if (discussionActive) loadDiscussions();
+}
+
+function renderDiscussionPermission() {
+  if (!discussionPermission || !newThreadButton) return;
+  newThreadButton.classList.toggle("hidden", !canDiscuss());
+  if (!memberUser?.login) {
+    discussionPermission.textContent = "토론 작성은 GitHub 로그인 후 관리자 승인이 필요합니다.";
+  } else if (memberUser.status === "blocked") {
+    discussionPermission.textContent = "현재 이 계정은 토론 작성 권한이 차단되어 있습니다.";
+  } else if (!memberUser.approved) {
+    discussionPermission.textContent = "로그인되었습니다. 관리자 승인 후 토론 작성과 문서 편집이 활성화됩니다.";
+  } else {
+    discussionPermission.textContent = `@${memberUser.login} · 토론 작성 가능`;
+  }
+}
+
+function openDiscussionView(documentPath = "") {
+  discussionDocumentFilter = documentPath || "";
+  if (discussionDocumentFilter) {
+    const file = allFiles.find(item => item.path === discussionDocumentFilter);
+    discussionScopeText.textContent = `${file?.name || discussionDocumentFilter} 문서에 대한 토론입니다.`;
+    discussionClearDocument.classList.remove("hidden");
+    discussionAllButton.classList.remove("active");
+  } else {
+    discussionScopeText.textContent = "문건함 전체 토론입니다. 읽기는 누구나 가능하고, 작성은 승인된 회원만 가능합니다.";
+    discussionClearDocument.classList.add("hidden");
+    discussionAllButton.classList.add("active");
+  }
+  setView("discussion");
+}
+
+async function publicWorkerRequest(path, options = {}) {
+  const response = await fetch(`${AUTH_WORKER}${path}`, {
+    ...options,
+    headers: { Accept: "application/json", ...(options.headers || {}) },
+    cache: "no-store"
+  });
+  const type = response.headers.get("content-type") || "";
+  const payload = type.includes("application/json") ? await response.json().catch(() => null) : null;
+  if (!response.ok) throw new Error(payload?.error || `토론 API 오류 (${response.status})`);
+  return payload;
+}
+
+function discussionAuthorHtml(login, avatarUrl, date) {
+  const avatar = avatarUrl
+    ? `<img class="discussion-avatar" src="${escapeHtml(avatarUrl)}" alt="" loading="lazy" />`
+    : `<span class="discussion-avatar discussion-avatar-fallback">@</span>`;
+  return `<div class="discussion-author">${avatar}<span>@${escapeHtml(login || "unknown")}</span><time>${escapeHtml(formatDate(date))}</time></div>`;
+}
+
+async function loadDiscussions() {
+  if (discussionsLoading) return;
+  discussionsLoading = true;
+  discussionList.innerHTML = `<div class="preview-message">토론을 불러오는 중…</div>`;
+  discussionEmpty.classList.add("hidden");
+  try {
+    const query = discussionDocumentFilter ? `?document=${encodeURIComponent(discussionDocumentFilter)}` : "";
+    const data = await publicWorkerRequest(`/api/discussions${query}`);
+    const threads = data?.threads || [];
+    if (!threads.length) {
+      discussionList.innerHTML = "";
+      discussionEmpty.classList.remove("hidden");
+      return;
+    }
+    discussionList.innerHTML = threads.map(thread => `
+      <article class="discussion-card" data-thread-id="${thread.id}" tabindex="0">
+        <div class="discussion-card-top">
+          <h3>${escapeHtml(thread.title)}</h3>
+          <span class="discussion-count">댓글 ${Number(thread.comment_count || 0)}</span>
+        </div>
+        ${discussionAuthorHtml(thread.author_login, thread.avatar_url, thread.updated_at)}
+        ${thread.document_path ? `<button class="discussion-document-link" type="button" data-discussion-document="${escapeHtml(thread.document_path)}">문서 · ${escapeHtml(thread.document_path.replace(/^files\//, ""))}</button>` : ""}
+        <p>${escapeHtml(String(thread.body || "").slice(0, 240))}${String(thread.body || "").length > 240 ? "…" : ""}</p>
+      </article>
+    `).join("");
+    discussionList.querySelectorAll(".discussion-card").forEach(card => {
+      card.addEventListener("click", event => {
+        if (event.target.closest(".discussion-document-link")) return;
+        openThread(Number(card.dataset.threadId));
+      });
+      card.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") openThread(Number(card.dataset.threadId));
+      });
+    });
+    discussionList.querySelectorAll(".discussion-document-link").forEach(button => {
+      button.addEventListener("click", () => openDiscussionView(button.dataset.discussionDocument));
+    });
+  } catch (error) {
+    discussionList.innerHTML = `<div class="preview-message">토론을 불러오지 못했습니다.<br>${escapeHtml(error.message)}</div>`;
+  } finally {
+    discussionsLoading = false;
+  }
+}
+
+function openNewThread(documentPath = discussionDocumentFilter) {
+  if (!canDiscuss()) {
+    showToast("관리자 승인 후 토론을 작성할 수 있습니다.");
+    return;
+  }
+  threadForm.reset();
+  threadDocument.value = documentPath || "";
+  threadFormMessage.textContent = "";
+  threadFormDialog.showModal();
+}
+
+async function submitThread(event) {
+  event.preventDefault();
+  if (!canDiscuss()) return;
+  setButtonBusy(threadSubmit, true, "등록 중…");
+  threadFormMessage.textContent = "";
+  try {
+    const data = await memberRequest("/api/discussions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: threadTitle.value,
+        body: threadBody.value,
+        documentPath: threadDocument.value
+      })
+    });
+    threadFormDialog.close();
+    showToast("토론을 등록했습니다.");
+    await loadDiscussions();
+    if (data?.thread?.id) openThread(Number(data.thread.id));
+  } catch (error) {
+    threadFormMessage.textContent = error.message;
+  } finally {
+    setButtonBusy(threadSubmit, false);
+  }
+}
+
+function canDeleteDiscussionItem(authorLogin) {
+  if (!memberUser?.login || !canDiscuss()) return false;
+  return Boolean(memberUser.admin || String(authorLogin || "").toLowerCase() === String(memberUser.login).toLowerCase());
+}
+
+async function openThread(id) {
+  if (!threadDialog.open) threadDialog.showModal();
+  threadDetailTitle.textContent = "토론을 불러오는 중…";
+  threadDetailMeta.innerHTML = "";
+  threadDetailBody.textContent = "";
+  commentList.innerHTML = `<div class="preview-message">불러오는 중…</div>`;
+  try {
+    const data = await publicWorkerRequest(`/api/discussions/${id}`);
+    currentThread = data.thread;
+    threadDetailTitle.textContent = currentThread.title;
+    threadDetailMeta.innerHTML = discussionAuthorHtml(currentThread.author_login, currentThread.avatar_url, currentThread.created_at)
+      + (currentThread.document_path ? `<button class="discussion-document-link thread-document-link" type="button" data-discussion-document="${escapeHtml(currentThread.document_path)}">관련 문서 · ${escapeHtml(currentThread.document_path.replace(/^files\//, ""))}</button>` : "");
+    threadDetailBody.textContent = currentThread.body;
+    threadDelete.classList.toggle("hidden", !canDeleteDiscussionItem(currentThread.author_login));
+    renderComments(data.comments || []);
+    commentForm.classList.toggle("hidden", !canDiscuss());
+    commentPermission.textContent = canDiscuss()
+      ? ""
+      : memberUser?.login ? "관리자 승인 후 댓글을 작성할 수 있습니다." : "댓글 작성은 로그인 및 관리자 승인이 필요합니다.";
+    const docButton = threadDetailMeta.querySelector(".thread-document-link");
+    if (docButton) docButton.addEventListener("click", () => {
+      threadDialog.close();
+      openDiscussionView(docButton.dataset.discussionDocument);
+    });
+  } catch (error) {
+    threadDetailTitle.textContent = "토론을 불러오지 못했습니다";
+    threadDetailBody.textContent = error.message;
+    commentList.innerHTML = "";
+  }
+}
+
+function renderComments(comments) {
+  if (!comments.length) {
+    commentList.innerHTML = `<p class="discussion-muted">아직 댓글이 없습니다.</p>`;
+    return;
+  }
+  commentList.innerHTML = comments.map(comment => `
+    <article class="comment-item">
+      <div class="comment-head">
+        ${discussionAuthorHtml(comment.author_login, comment.avatar_url, comment.created_at)}
+        ${canDeleteDiscussionItem(comment.author_login) ? `<button class="text-button comment-delete" type="button" data-comment-id="${comment.id}">삭제</button>` : ""}
+      </div>
+      <p>${escapeHtml(comment.body)}</p>
+    </article>
+  `).join("");
+  commentList.querySelectorAll(".comment-delete").forEach(button => {
+    button.addEventListener("click", async () => {
+      if (!window.confirm("이 댓글을 삭제할까요?")) return;
+      try {
+        await memberRequest(`/api/comments/${button.dataset.commentId}`, { method: "DELETE" });
+        await openThread(currentThread.id);
+      } catch (error) {
+        showToast(error.message, 4200);
+      }
+    });
+  });
+}
+
+async function submitComment(event) {
+  event.preventDefault();
+  if (!currentThread || !canDiscuss()) return;
+  setButtonBusy(commentSubmit, true, "등록 중…");
+  try {
+    await memberRequest(`/api/discussions/${currentThread.id}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: commentBody.value })
+    });
+    commentBody.value = "";
+    await openThread(currentThread.id);
+    await loadDiscussions();
+  } catch (error) {
+    showToast(error.message, 4200);
+  } finally {
+    setButtonBusy(commentSubmit, false);
+  }
+}
+
+async function deleteCurrentThread() {
+  if (!currentThread || !canDeleteDiscussionItem(currentThread.author_login)) return;
+  if (!window.confirm("이 토론과 모든 댓글을 삭제할까요?")) return;
+  try {
+    await memberRequest(`/api/discussions/${currentThread.id}`, { method: "DELETE" });
+    threadDialog.close();
+    currentThread = null;
+    showToast("토론을 삭제했습니다.");
+    await loadDiscussions();
+  } catch (error) {
+    showToast(error.message, 4200);
+  }
+}
+
+async function openMembersDialog() {
+  if (!memberUser?.admin) return;
+  membersDialog.showModal();
+  await loadMembers();
+}
+
+async function loadMembers() {
+  if (!memberUser?.admin) return;
+  membersMessage.textContent = "";
+  membersList.innerHTML = `<div class="preview-message">회원 목록을 불러오는 중…</div>`;
+  try {
+    const data = await memberRequest("/api/admin/members");
+    const members = data?.members || [];
+    membersList.innerHTML = members.map(member => {
+      const statusLabel = member.admin ? "관리자" : member.status === "approved" ? "승인" : member.status === "blocked" ? "차단" : "대기";
+      const avatar = member.avatar_url ? `<img class="discussion-avatar" src="${escapeHtml(member.avatar_url)}" alt="" />` : `<span class="discussion-avatar discussion-avatar-fallback">@</span>`;
+      return `<div class="member-row">
+        <div class="member-identity">${avatar}<div><strong>@${escapeHtml(member.github_login)}</strong><span>${statusLabel}</span></div></div>
+        <div class="member-actions">
+          ${member.admin ? `<span class="member-admin-label">관리자</span>` : `
+            <button class="text-button member-status-action" type="button" data-login="${escapeHtml(member.github_login)}" data-status="approved">승인</button>
+            <button class="text-button member-status-action" type="button" data-login="${escapeHtml(member.github_login)}" data-status="pending">대기</button>
+            <button class="text-button member-status-action danger-text" type="button" data-login="${escapeHtml(member.github_login)}" data-status="blocked">차단</button>`}
+        </div>
+      </div>`;
+    }).join("") || `<p class="discussion-muted">등록된 회원이 없습니다.</p>`;
+    membersList.querySelectorAll(".member-status-action").forEach(button => {
+      button.addEventListener("click", () => updateMemberStatus(button.dataset.login, button.dataset.status));
+    });
+  } catch (error) {
+    membersList.innerHTML = "";
+    membersMessage.textContent = error.message;
+  }
+}
+
+async function updateMemberStatus(login, status) {
+  if (!memberUser?.admin) return;
+  try {
+    await memberRequest("/api/admin/members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ login, status })
+    });
+    showToast(status === "approved" ? `@${login} 님을 승인했습니다.` : status === "blocked" ? `@${login} 님을 차단했습니다.` : `@${login} 님을 승인 대기로 변경했습니다.`);
+    await loadMembers();
+  } catch (error) {
+    membersMessage.textContent = error.message;
+  }
+}
+
+async function approveMemberFromForm(event) {
+  event.preventDefault();
+  const login = memberApproveLogin.value.trim();
+  if (!login) return;
+  setButtonBusy(memberApproveSubmit, true, "승인 중…");
+  try {
+    await updateMemberStatus(login, "approved");
+    memberApproveLogin.value = "";
+  } finally {
+    setButtonBusy(memberApproveSubmit, false);
+  }
+}
+
 function wireDialogCloseButtons() {
   document.querySelectorAll(".dialog-close").forEach(button => {
     button.addEventListener("click", () => button.closest("dialog")?.close());
@@ -1545,6 +1919,16 @@ zoomReset.addEventListener("click", () => { imageScale = 1; applyImageTransform(
 rotateImage.addEventListener("click", () => { imageRotation = (imageRotation + 90) % 360; applyImageTransform(); });
 
 memberButton.addEventListener("click", handleMemberButton);
+if (membersButton) membersButton.addEventListener("click", openMembersDialog);
+filesTab.addEventListener("click", () => setView("files"));
+discussionTab.addEventListener("click", () => openDiscussionView(""));
+discussionAllButton.addEventListener("click", () => openDiscussionView(""));
+discussionClearDocument.addEventListener("click", () => openDiscussionView(""));
+newThreadButton.addEventListener("click", () => openNewThread());
+threadForm.addEventListener("submit", submitThread);
+commentForm.addEventListener("submit", submitComment);
+threadDelete.addEventListener("click", deleteCurrentThread);
+memberApproveForm.addEventListener("submit", approveMemberFromForm);
 adminButton.addEventListener("click", openAdminDialog);
 adminForm.addEventListener("submit", connectAdmin);
 adminDisconnect.addEventListener("click", disconnectAdmin);
@@ -1590,5 +1974,6 @@ wireDialogCloseButtons();
 updateUploadSelection();
 updateFavoritesToggle();
 renderAdminState();
+renderDiscussionPermission();
 initializeMemberAuth();
 loadFiles();
