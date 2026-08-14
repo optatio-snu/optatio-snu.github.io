@@ -9,6 +9,10 @@ const emptyState = document.querySelector("#empty-state");
 const searchInput = document.querySelector("#search");
 const sortSelect = document.querySelector("#sort");
 const chips = document.querySelector("#chips");
+const folderChips = document.querySelector("#folder-chips");
+const tagChips = document.querySelector("#tag-chips");
+const tagFilterRow = document.querySelector("#tag-filter-row");
+const favoritesToggle = document.querySelector("#favorites-toggle");
 const summary = document.querySelector("#summary");
 const toast = document.querySelector("#toast");
 
@@ -56,6 +60,8 @@ const manageMessage = document.querySelector("#manage-message");
 const textEditorWrap = document.querySelector("#text-editor-wrap");
 const textEditor = document.querySelector("#text-editor");
 const textSave = document.querySelector("#text-save");
+const manageTags = document.querySelector("#manage-tags");
+const tagsSave = document.querySelector("#tags-save");
 
 const CATEGORY_LABELS = ["전체", "문서", "표", "이미지", "압축", "기타"];
 const DOCUMENTS = new Set(["pdf", "hwp", "hwpx", "doc", "docx", "ppt", "pptx", "txt", "md", "rtf"]);
@@ -68,9 +74,16 @@ const MAX_UPLOAD_BYTES = 95 * 1024 * 1024;
 const LARGE_FILE_WARNING_BYTES = 50 * 1024 * 1024;
 const API_VERSION = "2026-03-10";
 const TOKEN_KEY = "documentVault.githubToken";
+const FAVORITES_KEY = "documentVault.favorites.v1";
+const METADATA_PATH = "metadata.json";
 
 let allFiles = [];
+let metadata = { version: 1, files: {} };
 let activeCategory = "전체";
+let activeFolder = "전체";
+let activeTag = "전체";
+let favoritesOnly = false;
+let favoritePaths = loadFavoritePaths();
 let currentPreviewPath = "";
 let currentManageFile = null;
 let selectedUploadFiles = [];
@@ -103,6 +116,65 @@ function inferRepo() {
 
 function normalizeDir(value = "files") {
   return String(value).trim().replace(/^\/+|\/+$/g, "") || "files";
+}
+
+function loadFavoritePaths() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter(value => typeof value === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveFavoritePaths() {
+  localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favoritePaths]));
+}
+
+function isFavorite(path) {
+  return favoritePaths.has(path);
+}
+
+function toggleFavorite(path) {
+  if (favoritePaths.has(path)) favoritePaths.delete(path);
+  else favoritePaths.add(path);
+  saveFavoritePaths();
+  renderFiles();
+  updateFavoritesToggle();
+}
+
+function moveFavorite(oldPath, newPath) {
+  if (!favoritePaths.has(oldPath)) return;
+  favoritePaths.delete(oldPath);
+  favoritePaths.add(newPath);
+  saveFavoritePaths();
+}
+
+function removeFavorite(path) {
+  if (!favoritePaths.delete(path)) return;
+  saveFavoritePaths();
+}
+
+function metadataFor(path) {
+  return metadata?.files?.[path] || {};
+}
+
+function tagsFor(file) {
+  const tags = metadataFor(file.path).tags;
+  return Array.isArray(tags) ? tags.filter(tag => typeof tag === "string" && tag.trim()).map(tag => tag.trim()) : [];
+}
+
+function folderFor(file) {
+  const prefix = `${adminSession.filesDir}/`;
+  const relative = file.path.startsWith(prefix) ? file.path.slice(prefix.length) : file.path;
+  const parts = relative.split("/").filter(Boolean);
+  return parts.length > 1 ? parts.slice(0, -1).join("/") : "/";
+}
+
+function updateFavoritesToggle() {
+  favoritesToggle.classList.toggle("active", favoritesOnly);
+  favoritesToggle.setAttribute("aria-pressed", favoritesOnly ? "true" : "false");
+  favoritesToggle.textContent = favoritesOnly ? "★ 즐겨찾기만" : "☆ 즐겨찾기";
 }
 
 function normalizeRepoPath(value, ensureFilesDir = true) {
@@ -225,6 +297,55 @@ function renderAdminState() {
   renderFiles();
 }
 
+function renderOrganizer() {
+  const folderCounts = new Map();
+  const tagCounts = new Map();
+
+  allFiles.forEach(file => {
+    const folder = folderFor(file);
+    folderCounts.set(folder, (folderCounts.get(folder) || 0) + 1);
+    tagsFor(file).forEach(tag => tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1));
+  });
+
+  const folders = [...folderCounts.keys()].sort((a, b) => {
+    if (a === "/") return -1;
+    if (b === "/") return 1;
+    return a.localeCompare(b, "ko");
+  });
+  if (activeFolder !== "전체" && !folderCounts.has(activeFolder)) activeFolder = "전체";
+
+  folderChips.innerHTML = [
+    `<button type="button" class="filter-chip ${activeFolder === "전체" ? "active" : ""}" data-folder="전체">전체 <span>${allFiles.length}</span></button>`,
+    ...folders.map(folder => `<button type="button" class="filter-chip ${activeFolder === folder ? "active" : ""}" data-folder="${escapeHtml(folder)}">${folder === "/" ? "최상위" : escapeHtml(folder)} <span>${folderCounts.get(folder)}</span></button>`)
+  ].join("");
+
+  folderChips.querySelectorAll("[data-folder]").forEach(button => {
+    button.addEventListener("click", () => {
+      activeFolder = button.dataset.folder;
+      renderOrganizer();
+      renderFiles();
+    });
+  });
+
+  const tags = [...tagCounts.keys()].sort((a, b) => a.localeCompare(b, "ko"));
+  if (activeTag !== "전체" && !tagCounts.has(activeTag)) activeTag = "전체";
+  tagFilterRow.classList.toggle("hidden", tags.length === 0);
+  tagChips.innerHTML = [
+    `<button type="button" class="filter-chip ${activeTag === "전체" ? "active" : ""}" data-tag="전체">전체</button>`,
+    ...tags.map(tag => `<button type="button" class="filter-chip ${activeTag === tag ? "active" : ""}" data-tag="${escapeHtml(tag)}">#${escapeHtml(tag)} <span>${tagCounts.get(tag)}</span></button>`)
+  ].join("");
+
+  tagChips.querySelectorAll("[data-tag]").forEach(button => {
+    button.addEventListener("click", () => {
+      activeTag = button.dataset.tag;
+      renderOrganizer();
+      renderFiles();
+    });
+  });
+
+  updateFavoritesToggle();
+}
+
 function renderChips() {
   const counts = Object.fromEntries(CATEGORY_LABELS.map(label => [label, 0]));
   counts["전체"] = allFiles.length;
@@ -249,8 +370,12 @@ function filteredFiles() {
   const query = searchInput.value.trim().toLowerCase();
   const list = allFiles.filter(file => {
     const categoryOk = activeCategory === "전체" || file.category === activeCategory;
-    const haystack = `${file.name} ${file.path} ${file.extension} ${file.category}`.toLowerCase();
-    return categoryOk && (!query || haystack.includes(query));
+    const folderOk = activeFolder === "전체" || folderFor(file) === activeFolder;
+    const fileTags = tagsFor(file);
+    const tagOk = activeTag === "전체" || fileTags.includes(activeTag);
+    const favoriteOk = !favoritesOnly || isFavorite(file.path);
+    const haystack = `${file.name} ${file.path} ${file.extension} ${file.category} ${folderFor(file)} ${fileTags.join(" ")}`.toLowerCase();
+    return categoryOk && folderOk && tagOk && favoriteOk && (!query || haystack.includes(query));
   });
 
   const sort = sortSelect.value;
@@ -262,23 +387,45 @@ function filteredFiles() {
   return list;
 }
 
+function thumbnailHtml(file) {
+  const url = fileUrl(file);
+  const ext = (file.extension || extensionFromName(file.name)).toLowerCase();
+  if (PREVIEWABLE_IMAGES.has(ext)) {
+    return `<div class="file-thumbnail image-thumbnail"><img src="${url}" alt="" loading="lazy" /></div>`;
+  }
+  if (ext === "pdf") {
+    return `<div class="file-thumbnail pdf-thumbnail"><iframe src="${url}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=FitH" title="${escapeHtml(file.name)} 첫 페이지" loading="lazy" tabindex="-1"></iframe><span class="thumbnail-shield" aria-hidden="true"></span></div>`;
+  }
+  return `<div class="file-thumbnail generic-thumbnail"><span>${escapeHtml(extensionOf(file))}</span></div>`;
+}
+
 function renderFiles() {
   const list = filteredFiles();
-  summary.textContent = `총 ${allFiles.length}개 중 ${list.length}개 표시${isAdmin() ? " · 관리자 모드" : ""}`;
+  const filterBits = [];
+  if (activeFolder !== "전체") filterBits.push(activeFolder === "/" ? "최상위 폴더" : `폴더 ${activeFolder}`);
+  if (activeTag !== "전체") filterBits.push(`#${activeTag}`);
+  if (favoritesOnly) filterBits.push("즐겨찾기");
+  summary.textContent = `총 ${allFiles.length}개 중 ${list.length}개 표시${filterBits.length ? ` · ${filterBits.join(" · ")}` : ""}${isAdmin() ? " · 관리자 모드" : ""}`;
   emptyState.classList.toggle("hidden", list.length !== 0);
 
   grid.innerHTML = list.map(file => {
     const url = fileUrl(file);
     const safeName = escapeHtml(file.name);
     const safePath = escapeHtml(file.path);
+    const fileTags = tagsFor(file);
     return `
       <article class="file-card">
+        ${thumbnailHtml(file)}
         <div class="file-top">
-          <span class="file-badge">${escapeHtml(extensionOf(file))}</span>
-          <span class="file-category">${escapeHtml(file.category || "기타")}</span>
+          <div class="file-type-line">
+            <span class="file-badge">${escapeHtml(extensionOf(file))}</span>
+            <span class="file-category">${escapeHtml(file.category || "기타")}</span>
+          </div>
+          <button class="favorite-button ${isFavorite(file.path) ? "active" : ""}" type="button" data-favorite-path="${safePath}" aria-label="${isFavorite(file.path) ? "즐겨찾기 해제" : "즐겨찾기 추가"}">${isFavorite(file.path) ? "★" : "☆"}</button>
         </div>
         <h2 class="file-name">${safeName}</h2>
         <p class="file-path">${escapeHtml(file.path.replace(new RegExp(`^${adminSession.filesDir}/`), ""))}</p>
+        ${fileTags.length ? `<div class="file-tags">${fileTags.map(tag => `<button type="button" class="file-tag" data-card-tag="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`).join("")}</div>` : ""}
         <div class="card-bottom">
           <div class="file-meta">${humanSize(file.size)}<br>${formatDate(file.modified)}</div>
           <div class="card-actions">
@@ -302,6 +449,18 @@ function renderFiles() {
     button.addEventListener("click", () => {
       const file = allFiles.find(item => item.path === button.dataset.path);
       if (file) openManageDialog(file);
+    });
+  });
+
+  grid.querySelectorAll(".favorite-button").forEach(button => {
+    button.addEventListener("click", () => toggleFavorite(button.dataset.favoritePath));
+  });
+
+  grid.querySelectorAll(".file-tag").forEach(button => {
+    button.addEventListener("click", () => {
+      activeTag = button.dataset.cardTag;
+      renderOrganizer();
+      renderFiles();
     });
   });
 }
@@ -389,13 +548,28 @@ async function copyText(text, button) {
   }
 }
 
+async function loadMetadata() {
+  try {
+    const response = await fetch(`./${METADATA_PATH}?v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error("metadata not found");
+    const data = await response.json();
+    metadata = { version: 1, files: data && typeof data.files === "object" && data.files ? data.files : {} };
+  } catch {
+    metadata = { version: 1, files: {} };
+  }
+}
+
 async function loadFiles(showError = true) {
   try {
-    const response = await fetch(`./files.json?v=${Date.now()}`, { cache: "no-store" });
+    const [response] = await Promise.all([
+      fetch(`./files.json?v=${Date.now()}`, { cache: "no-store" }),
+      loadMetadata()
+    ]);
     if (!response.ok) throw new Error("files.json not found");
     const data = await response.json();
     allFiles = Array.isArray(data.files) ? data.files : [];
     renderChips();
+    renderOrganizer();
     renderFiles();
     return true;
   } catch (error) {
@@ -516,6 +690,32 @@ async function deleteFile(path, sha, message) {
   });
 }
 
+async function saveMetadataToGitHub(message = "docs: update metadata") {
+  let existing = null;
+  try {
+    existing = await getContentMeta(METADATA_PATH);
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+  const serialized = `${JSON.stringify({ version: 1, files: metadata.files || {} }, null, 2)}\n`;
+  await putFile(METADATA_PATH, textToBase64(serialized), message, existing?.sha || null);
+}
+
+function cleanTags(value) {
+  const seen = new Set();
+  return String(value || "")
+    .split(/[,\n]/)
+    .map(tag => tag.trim().replace(/^#+/, ""))
+    .filter(tag => tag && tag.length <= 30)
+    .filter(tag => {
+      const key = tag.toLocaleLowerCase("ko");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12);
+}
+
 function localFileRecord(path, size, modified = new Date().toISOString()) {
   const name = path.split("/").pop();
   const extension = extensionFromName(name);
@@ -537,12 +737,14 @@ function upsertLocalFile(record, oldPath = null) {
   if (index >= 0) allFiles[index] = { ...allFiles[index], ...record };
   else allFiles.push(record);
   renderChips();
+  renderOrganizer();
   renderFiles();
 }
 
 function removeLocalFile(path) {
   allFiles = allFiles.filter(file => file.path !== path);
   renderChips();
+  renderOrganizer();
   renderFiles();
 }
 
@@ -618,6 +820,7 @@ async function openManageDialog(file) {
   currentManageFile = file;
   manageTitle.textContent = file.name;
   managePath.value = file.path;
+  manageTags.value = tagsFor(file).join(", ");
   replaceInput.value = "";
   manageMessage.textContent = "";
   textEditorWrap.classList.add("hidden");
@@ -646,6 +849,37 @@ async function openManageDialog(file) {
     } finally {
       textEditor.disabled = false;
     }
+  }
+}
+
+async function saveTagsCurrentFile() {
+  if (!currentManageFile) return;
+  const tags = cleanTags(manageTags.value);
+  const path = currentManageFile.path;
+  const previous = JSON.parse(JSON.stringify(metadata));
+
+  setButtonBusy(tagsSave, true, "저장 중…");
+  manageMessage.textContent = "태그를 저장하는 중입니다…";
+  try {
+    const current = metadataFor(path);
+    if (tags.length) metadata.files[path] = { ...current, tags };
+    else {
+      const next = { ...current };
+      delete next.tags;
+      if (Object.keys(next).length) metadata.files[path] = next;
+      else delete metadata.files[path];
+    }
+    await saveMetadataToGitHub(`docs: update tags for ${path}`);
+    manageTags.value = tags.join(", ");
+    renderOrganizer();
+    renderFiles();
+    manageMessage.textContent = "태그를 저장했습니다.";
+    showToast("태그를 저장했습니다.");
+  } catch (error) {
+    metadata = previous;
+    manageMessage.textContent = `태그 저장 실패: ${error.message}`;
+  } finally {
+    setButtonBusy(tagsSave, false);
   }
 }
 
@@ -682,11 +916,24 @@ async function renameCurrentFile() {
     await putFile(newPath, base64, `docs: move ${oldPath} to ${newPath}`);
     await deleteFile(oldPath, meta.sha, `docs: remove old path ${oldPath}`);
 
+    const oldMetadata = metadata.files[oldPath];
+    if (oldMetadata) {
+      metadata.files[newPath] = oldMetadata;
+      delete metadata.files[oldPath];
+      try {
+        await saveMetadataToGitHub(`docs: move metadata ${oldPath} to ${newPath}`);
+      } catch (metadataError) {
+        showToast(`파일은 이동했지만 태그 정보 저장에 실패했습니다: ${metadataError.message}`, 5200);
+      }
+    }
+    moveFavorite(oldPath, newPath);
+
     const updated = localFileRecord(newPath, currentManageFile.size);
     upsertLocalFile(updated, oldPath);
     currentManageFile = updated;
     manageTitle.textContent = updated.name;
     managePath.value = updated.path;
+    manageTags.value = tagsFor(updated).join(", ");
     manageMessage.textContent = "경로와 이름을 변경했습니다.";
     showToast("파일 경로를 변경했습니다.");
   } catch (error) {
@@ -760,6 +1007,15 @@ async function deleteCurrentFile() {
   try {
     const meta = await getContentMeta(file.path);
     await deleteFile(file.path, meta.sha, `docs: delete ${file.path}`);
+    if (metadata.files[file.path]) {
+      delete metadata.files[file.path];
+      try {
+        await saveMetadataToGitHub(`docs: remove metadata for ${file.path}`);
+      } catch (metadataError) {
+        showToast(`파일은 삭제했지만 태그 정보 정리에 실패했습니다: ${metadataError.message}`, 5200);
+      }
+    }
+    removeFavorite(file.path);
     removeLocalFile(file.path);
     manageDialog.close();
     currentManageFile = null;
@@ -857,6 +1113,11 @@ previewCopy.addEventListener("click", () => copyText(previewCopy.dataset.url, pr
 document.querySelector("#copy-page-link").addEventListener("click", event => copyText(window.location.href, event.currentTarget));
 searchInput.addEventListener("input", renderFiles);
 sortSelect.addEventListener("change", renderFiles);
+favoritesToggle.addEventListener("click", () => {
+  favoritesOnly = !favoritesOnly;
+  updateFavoritesToggle();
+  renderFiles();
+});
 previewPrev.addEventListener("click", () => movePreview(-1));
 previewNext.addEventListener("click", () => movePreview(1));
 zoomOut.addEventListener("click", () => { imageScale = Math.max(0.25, imageScale - 0.25); applyImageTransform(); });
@@ -870,6 +1131,7 @@ adminDisconnect.addEventListener("click", disconnectAdmin);
 renameSubmit.addEventListener("click", renameCurrentFile);
 replaceSubmit.addEventListener("click", replaceCurrentFile);
 textSave.addEventListener("click", saveTextCurrentFile);
+tagsSave.addEventListener("click", saveTagsCurrentFile);
 deleteSubmit.addEventListener("click", deleteCurrentFile);
 
 uploadInput.addEventListener("change", () => {
@@ -906,5 +1168,6 @@ dropZone.addEventListener("keydown", event => {
 
 wireDialogCloseButtons();
 updateUploadSelection();
+updateFavoritesToggle();
 renderAdminState();
 loadFiles();

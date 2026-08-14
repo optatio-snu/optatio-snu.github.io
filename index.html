@@ -56,8 +56,9 @@
       <section class="toolbar" aria-label="파일 찾기">
         <div class="search-wrap">
           <span aria-hidden="true">⌕</span>
-          <input id="search" type="search" placeholder="파일명, 폴더명, 확장자로 검색" autocomplete="off" />
+          <input id="search" type="search" placeholder="파일명, 폴더명, 태그, 확장자로 검색" autocomplete="off" />
         </div>
+        <button id="favorites-toggle" class="toolbar-button" type="button" aria-pressed="false">☆ 즐겨찾기</button>
         <select id="sort" aria-label="정렬">
           <option value="newest">최근 수정순</option>
           <option value="name">이름순</option>
@@ -66,6 +67,17 @@
       </section>
 
       <section class="chips" id="chips" aria-label="파일 종류 필터"></section>
+
+      <section class="organizer" aria-label="폴더 및 태그 필터">
+        <div class="organizer-row">
+          <span class="organizer-label">폴더</span>
+          <div id="folder-chips" class="filter-chips"></div>
+        </div>
+        <div id="tag-filter-row" class="organizer-row hidden">
+          <span class="organizer-label">태그</span>
+          <div id="tag-chips" class="filter-chips"></div>
+        </div>
+      </section>
 
       <section class="summary-row">
         <p id="summary">파일을 불러오는 중…</p>
@@ -84,7 +96,7 @@
     <footer>
       <span>GitHub Pages로 만든 정적 문건함</span>
       <span>•</span>
-      <span>파일은 이 저장소의 <code>files/</code> 폴더에서 관리됩니다.</span>
+      <span>파일은 이 저장소의 <code>files/</code> 폴더에서 관리됩니다. 즐겨찾기는 현재 브라우저에만 저장됩니다.</span>
     </footer>
   </div>
 
@@ -169,6 +181,15 @@
         <small><code>files/</code> 아래 경로로 저장됩니다. 예: <code>files/경제학/새이름.pdf</code></small>
       </label>
       <button id="rename-submit" class="secondary-button wide-button" type="button">경로·이름 변경 저장</button>
+
+      <div class="form-divider"></div>
+
+      <label class="form-field">
+        <span>태그</span>
+        <input id="manage-tags" class="field-input" type="text" placeholder="예: 회칙, 2026, 회의" />
+        <small>쉼표로 구분해주세요. 태그는 사이트 전체에 표시되며 관리자만 수정할 수 있습니다.</small>
+      </label>
+      <button id="tags-save" class="secondary-button wide-button" type="button">태그 저장</button>
 
       <div class="form-divider"></div>
 
