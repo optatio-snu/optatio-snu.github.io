@@ -1,13 +1,4 @@
 {
-  "generatedAt": "2026-08-14T17:05:49.342720+00:00",
-  "files": [
-    {
-      "name": "sample files.pdf",
-      "path": "files/sample files.pdf",
-      "extension": "pdf",
-      "category": "문서",
-      "size": 9012,
-      "modified": "2026-08-15T02:05:41+09:00"
-    }
-  ]
+  "generatedAt": "2026-08-14T16:07:42.423949+00:00",
+  "files": []
 }

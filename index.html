@@ -16,10 +16,43 @@
         <h1 id="site-title">문건함</h1>
         <p id="site-description" class="subtitle">PDF, HWP, 이미지, 엑셀 등 자주 공유하는 파일을 한곳에 모아둡니다.</p>
       </div>
-      <a id="repo-link" class="repo-link hidden" href="#" target="_blank" rel="noreferrer">GitHub ↗</a>
+      <div class="hero-actions">
+        <span id="admin-status" class="admin-status hidden">관리자 모드</span>
+        <button id="admin-button" class="repo-link" type="button">관리</button>
+        <a id="repo-link" class="repo-link hidden" href="#" target="_blank" rel="noreferrer">GitHub ↗</a>
+      </div>
     </header>
 
     <main>
+      <section id="admin-panel" class="admin-panel hidden" aria-label="관리자 파일 업로드">
+        <div class="admin-panel-copy">
+          <p class="eyebrow">ADMIN</p>
+          <h2>웹에서 바로 파일 관리</h2>
+          <p>업로드하면 <code>files/</code> 아래에 바로 커밋돼. 카드의 <strong>관리</strong> 버튼에서 교체·경로 수정·삭제도 할 수 있어.</p>
+        </div>
+        <div class="upload-controls">
+          <label class="field-label" for="upload-folder">업로드 폴더</label>
+          <div class="upload-row">
+            <input id="upload-folder" class="field-input" type="text" placeholder="예: 경제학/발표자료 (비워두면 files/ 바로 아래)" />
+            <label class="primary-button file-picker">
+              파일 선택
+              <input id="upload-input" type="file" multiple />
+            </label>
+          </div>
+          <div id="drop-zone" class="drop-zone" tabindex="0">
+            <strong>여기로 파일을 끌어와도 돼</strong>
+            <span>여러 파일 동시 선택 가능 · 파일당 95 MiB 이하</span>
+          </div>
+          <div class="admin-panel-bottom">
+            <span id="upload-selection">선택된 파일 없음</span>
+            <div class="admin-panel-actions">
+              <button id="refresh-index" class="secondary-button" type="button">목록 다시 불러오기</button>
+              <button id="upload-submit" class="primary-button" type="button" disabled>업로드</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="toolbar" aria-label="파일 찾기">
         <div class="search-wrap">
           <span aria-hidden="true">⌕</span>
@@ -55,20 +88,113 @@
     </footer>
   </div>
 
-  <dialog id="preview-dialog">
+  <dialog id="preview-dialog" class="preview-dialog">
     <div class="dialog-head">
-      <div>
+      <div class="dialog-title-wrap">
         <p class="eyebrow">PREVIEW</p>
         <h2 id="preview-title">미리보기</h2>
       </div>
       <button id="close-preview" class="icon-button" type="button" aria-label="미리보기 닫기">×</button>
     </div>
+    <div id="preview-toolbar" class="preview-toolbar hidden">
+      <div class="viewer-tools">
+        <button id="preview-prev" class="viewer-button" type="button">← 이전</button>
+        <button id="preview-next" class="viewer-button" type="button">다음 →</button>
+      </div>
+      <div id="image-tools" class="viewer-tools hidden">
+        <button id="zoom-out" class="viewer-button" type="button" aria-label="축소">−</button>
+        <button id="zoom-reset" class="viewer-button" type="button">100%</button>
+        <button id="zoom-in" class="viewer-button" type="button" aria-label="확대">＋</button>
+        <button id="rotate-image" class="viewer-button" type="button">회전</button>
+      </div>
+    </div>
     <div id="preview-body" class="preview-body"></div>
     <div class="dialog-actions">
+      <a id="preview-open" class="secondary-button link-button" href="#" target="_blank" rel="noreferrer">새 탭에서 열기</a>
       <a id="preview-download" class="primary-button" href="#" download>다운로드</a>
       <button id="preview-copy" class="secondary-button" type="button">파일 링크 복사</button>
     </div>
   </dialog>
+
+  <dialog id="admin-dialog" class="small-dialog">
+    <div class="dialog-head">
+      <div>
+        <p class="eyebrow">GITHUB ADMIN</p>
+        <h2>관리자 연결</h2>
+      </div>
+      <button class="icon-button dialog-close" type="button" aria-label="닫기">×</button>
+    </div>
+    <form id="admin-form" class="dialog-form">
+      <div class="security-note">
+        <strong>토큰은 저장소에 저장되지 않아.</strong>
+        <span>이 브라우저 탭의 <code>sessionStorage</code>에만 보관되고, 관리자 종료 시 바로 삭제돼.</span>
+      </div>
+      <label class="form-field">
+        <span>GitHub 사용자/조직</span>
+        <input id="github-owner" class="field-input" type="text" required />
+      </label>
+      <label class="form-field">
+        <span>저장소</span>
+        <input id="github-repo" class="field-input" type="text" required />
+      </label>
+      <label class="form-field">
+        <span>브랜치</span>
+        <input id="github-branch" class="field-input" type="text" value="main" required />
+      </label>
+      <label class="form-field">
+        <span>Fine-grained PAT</span>
+        <input id="github-token" class="field-input" type="password" placeholder="github_pat_…" autocomplete="off" required />
+        <small>해당 저장소만 선택하고 Repository permissions → Contents를 Read and write로 설정하면 돼.</small>
+      </label>
+      <p id="admin-form-message" class="form-message"></p>
+      <div class="dialog-form-actions">
+        <button id="admin-disconnect" class="danger-button hidden" type="button">관리자 종료</button>
+        <button id="admin-connect" class="primary-button" type="submit">연결</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="manage-dialog" class="small-dialog">
+    <div class="dialog-head">
+      <div>
+        <p class="eyebrow">MANAGE FILE</p>
+        <h2 id="manage-title">파일 관리</h2>
+      </div>
+      <button class="icon-button dialog-close" type="button" aria-label="닫기">×</button>
+    </div>
+    <div class="dialog-form">
+      <label class="form-field">
+        <span>경로 / 이름 수정</span>
+        <input id="manage-path" class="field-input" type="text" />
+        <small><code>files/</code> 아래 경로로 저장돼. 예: <code>files/경제학/새이름.pdf</code></small>
+      </label>
+      <button id="rename-submit" class="secondary-button wide-button" type="button">경로·이름 변경 저장</button>
+
+      <div class="form-divider"></div>
+
+      <label class="form-field">
+        <span>파일 교체</span>
+        <input id="replace-input" class="field-input file-input" type="file" />
+        <small>같은 경로를 유지한 채 내용만 새 파일로 교체해.</small>
+      </label>
+      <button id="replace-submit" class="secondary-button wide-button" type="button">선택한 파일로 교체</button>
+
+      <div id="text-editor-wrap" class="hidden">
+        <div class="form-divider"></div>
+        <label class="form-field">
+          <span>텍스트 내용 직접 편집</span>
+          <textarea id="text-editor" class="field-input text-editor" spellcheck="false"></textarea>
+        </label>
+        <button id="text-save" class="secondary-button wide-button" type="button">텍스트 저장</button>
+      </div>
+
+      <div class="form-divider"></div>
+      <button id="delete-submit" class="danger-button wide-button" type="button">이 파일 삭제</button>
+      <p id="manage-message" class="form-message"></p>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
   <script src="./site.config.js"></script>
   <script src="./app.js"></script>
