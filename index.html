@@ -20,6 +20,9 @@
       <div class="hero-actions">
         <span id="member-status" class="member-status hidden"></span>
         <button id="member-button" class="repo-link" type="button">회원 로그인</button>
+        <button id="trash-button" class="repo-link trash-icon-button hidden" type="button" aria-label="7일 휴지통" title="7일 휴지통">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" /></svg>
+        </button>
         <button id="admin-login-button" class="repo-link admin-login-button" type="button">관리자 로그인</button>
         <button id="members-button" class="repo-link hidden" type="button">회원 관리</button>
       </div>
@@ -407,6 +410,20 @@
     </section>
 
     <p id="admin-auth-message" class="form-message admin-auth-message"></p>
+  </dialog>
+
+  <dialog id="trash-dialog" class="small-dialog trash-dialog">
+    <div class="dialog-head">
+      <div><p class="eyebrow">RECYCLE BIN</p><h2>7일 휴지통</h2></div>
+      <button class="icon-button dialog-close" type="button" aria-label="닫기">×</button>
+    </div>
+    <p class="trash-lead">삭제된 문서는 7일 동안 관리자만 복원할 수 있습니다. 기간이 지나면 휴지통 목록에서 자동 제거됩니다.</p>
+    <div class="trash-security-note">
+      <strong>Git 기록 안내</strong>
+      <span>공개 Git 저장소의 특성상 삭제 전 파일은 과거 커밋 기록에 남을 수 있습니다. 이 휴지통은 실수 복구용이며 보안 삭제 기능은 아닙니다.</span>
+    </div>
+    <div id="trash-list" class="trash-list"></div>
+    <p id="trash-message" class="form-message"></p>
   </dialog>
 
   <dialog id="members-dialog" class="small-dialog members-dialog">

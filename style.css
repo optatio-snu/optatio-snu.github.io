@@ -1123,3 +1123,73 @@ dialog::backdrop { background: rgba(17,19,24,.38); backdrop-filter: blur(5px); }
   .hero-actions .repo-link { padding-left: 10px; padding-right: 10px; }
   .recovery-code-box { grid-template-columns: 1fr; }
 }
+
+
+/* 7-day recycle bin */
+.trash-icon-button {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+.trash-icon-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trash-dialog { max-width: 720px; }
+.trash-lead { margin: 0 0 14px; color: var(--muted); line-height: 1.65; }
+.trash-security-note {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255,255,255,.58);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.trash-security-note strong { color: var(--ink); }
+.trash-list { display: grid; gap: 10px; max-height: 58vh; overflow: auto; padding-right: 2px; }
+.trash-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 15px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+}
+.trash-item-copy { min-width: 0; display: grid; gap: 4px; }
+.trash-item-copy strong { overflow-wrap: anywhere; }
+.trash-path, .trash-meta, .trash-expiry { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.trash-expiry { color: var(--ink); font-weight: 700; }
+.trash-item-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; }
+.danger-text { color: #9a2f2f; }
+.trash-empty {
+  display: grid;
+  gap: 5px;
+  padding: 28px 18px;
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  color: var(--muted);
+}
+.trash-empty strong { color: var(--ink); }
+
+@media (max-width: 640px) {
+  .trash-item { align-items: flex-start; flex-direction: column; }
+  .trash-item-actions { width: 100%; justify-content: flex-end; }
+}

@@ -43,8 +43,12 @@ const rotateImage = document.querySelector("#rotate-image");
 
 const memberStatus = document.querySelector("#member-status");
 const memberButton = document.querySelector("#member-button");
+const trashButton = document.querySelector("#trash-button");
 const adminLoginButton = document.querySelector("#admin-login-button");
 const membersButton = document.querySelector("#members-button");
+const trashDialog = document.querySelector("#trash-dialog");
+const trashList = document.querySelector("#trash-list");
+const trashMessage = document.querySelector("#trash-message");
 const adminLoginDialog = document.querySelector("#admin-login-dialog");
 const adminAuthLoginPanel = document.querySelector("#admin-auth-login-panel");
 const adminAuthSetupPanel = document.querySelector("#admin-auth-setup-panel");
@@ -267,6 +271,7 @@ function renderMemberState() {
   }
 
   if (membersButton) membersButton.classList.toggle("hidden", !memberUser?.admin);
+  if (trashButton) trashButton.classList.toggle("hidden", !memberUser?.admin);
   renderDiscussionPermission();
   renderChatPermission();
 }
@@ -1227,9 +1232,11 @@ async function memberMoveFile(oldPath, newPath) {
   });
 }
 
-async function memberDeleteFile(path) {
+async function memberDeleteFile(path, metadataEntry = null) {
   return memberRequest("/api/delete", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path })
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, metadata: metadataEntry })
   });
 }
 
@@ -1623,13 +1630,14 @@ async function deleteCurrentFile() {
     return;
   }
   const file = currentManageFile;
-  const ok = window.confirm(`정말 ${file.name} 파일을 삭제할까요?\nGit 기록에는 남지만 현재 사이트에서는 삭제됩니다.`);
+  const ok = window.confirm(`정말 ${file.name} 파일을 삭제할까요?\n7일 휴지통으로 이동하며, 관리자만 복원할 수 있습니다.`);
   if (!ok) return;
 
-  setButtonBusy(deleteSubmit, true, "삭제 중…");
-  manageMessage.textContent = "삭제하는 중입니다…";
+  setButtonBusy(deleteSubmit, true, "휴지통 이동 중…");
+  manageMessage.textContent = "7일 휴지통으로 이동하는 중입니다…";
   try {
-    await memberDeleteFile(file.path);
+    const metadataSnapshot = metadata.files[file.path] ? JSON.parse(JSON.stringify(metadata.files[file.path])) : null;
+    await memberDeleteFile(file.path, metadataSnapshot);
 
     if (metadata.files[file.path]) {
       delete metadata.files[file.path];
@@ -1644,11 +1652,128 @@ async function deleteCurrentFile() {
     removeLocalFile(file.path);
     manageDialog.close();
     currentManageFile = null;
-    showToast("파일을 삭제했습니다.");
+    showToast("파일을 7일 휴지통으로 이동했습니다.");
   } catch (error) {
     manageMessage.textContent = `삭제 실패: ${error.message}`;
   } finally {
     setButtonBusy(deleteSubmit, false);
+  }
+}
+
+function trashRemainingText(purgeAt) {
+  const end = new Date(purgeAt).getTime();
+  if (!Number.isFinite(end)) return "만료일 정보 없음";
+  const ms = end - Date.now();
+  if (ms <= 0) return "보관 기간 만료";
+  const hours = Math.ceil(ms / 3600000);
+  if (hours <= 24) return `${hours}시간 남음`;
+  return `${Math.ceil(hours / 24)}일 남음`;
+}
+
+function trashDateText(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "날짜 정보 없음";
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
+  }).format(date);
+}
+
+async function openTrashDialog() {
+  if (!memberUser?.admin) {
+    showToast("휴지통은 관리자만 열 수 있습니다.");
+    return;
+  }
+  trashMessage.textContent = "";
+  trashList.innerHTML = `<div class="preview-message">휴지통을 불러오는 중…</div>`;
+  trashDialog.showModal();
+  await loadTrashItems();
+}
+
+async function loadTrashItems() {
+  if (!memberUser?.admin) return;
+  try {
+    const data = await memberRequest("/api/admin/trash");
+    const items = Array.isArray(data?.items) ? data.items : [];
+    if (!items.length) {
+      trashList.innerHTML = `<div class="trash-empty"><strong>휴지통이 비어 있습니다.</strong><span>삭제된 문서는 7일 동안 이곳에서 복원할 수 있습니다.</span></div>`;
+      return;
+    }
+    trashList.innerHTML = items.map(item => {
+      const name = String(item.path || "").split("/").pop() || item.path;
+      return `<article class="trash-item" data-trash-id="${Number(item.id)}">
+        <div class="trash-item-copy">
+          <strong>${escapeHtml(name)}</strong>
+          <span class="trash-path">${escapeHtml(item.path)}</span>
+          <span class="trash-meta">${humanSize(Number(item.size || 0))} · @${escapeHtml(item.deleted_by || "member")} 삭제 · ${escapeHtml(trashDateText(item.deleted_at))}</span>
+          <span class="trash-expiry">${escapeHtml(trashRemainingText(item.purge_at))}</span>
+        </div>
+        <div class="trash-item-actions">
+          <button class="secondary-button trash-restore" type="button" data-trash-id="${Number(item.id)}">복원</button>
+          <button class="text-button danger-text trash-purge" type="button" data-trash-id="${Number(item.id)}">휴지통에서 제거</button>
+        </div>
+      </article>`;
+    }).join("");
+
+    trashList.querySelectorAll(".trash-restore").forEach(button => {
+      button.addEventListener("click", () => restoreTrashItem(Number(button.dataset.trashId), button));
+    });
+    trashList.querySelectorAll(".trash-purge").forEach(button => {
+      button.addEventListener("click", () => purgeTrashItem(Number(button.dataset.trashId), button));
+    });
+  } catch (error) {
+    trashList.innerHTML = "";
+    trashMessage.textContent = `휴지통을 불러오지 못했습니다: ${error.message}`;
+  }
+}
+
+async function restoreTrashItem(id, button) {
+  if (!memberUser?.admin) return;
+  setButtonBusy(button, true, "복원 중…");
+  trashMessage.textContent = "";
+  try {
+    const data = await memberRequest("/api/admin/trash/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id })
+    });
+    const path = data?.item?.original_path || data?.item?.path || "";
+    let metadataRestored = true;
+    if (path && data?.metadata && typeof data.metadata === "object") {
+      metadata.files[path] = data.metadata;
+      try {
+        await saveMetadataToGitHub(`docs: restore metadata for ${path}`);
+      } catch (error) {
+        metadataRestored = false;
+      }
+    }
+    await loadTrashItems();
+    await loadFiles(false);
+    showToast(metadataRestored ? "문서를 복원했습니다." : "문서는 복원했지만 태그 정보 복원에는 실패했습니다.", 4800);
+  } catch (error) {
+    trashMessage.textContent = `복원 실패: ${error.message}`;
+  } finally {
+    setButtonBusy(button, false);
+  }
+}
+
+async function purgeTrashItem(id, button) {
+  if (!memberUser?.admin) return;
+  const ok = window.confirm("이 항목을 휴지통 복원 목록에서 지금 제거할까요?\n공개 Git 저장소의 과거 커밋 기록까지 지워지는 것은 아닙니다.");
+  if (!ok) return;
+  setButtonBusy(button, true, "제거 중…");
+  trashMessage.textContent = "";
+  try {
+    await memberRequest("/api/admin/trash/purge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id })
+    });
+    await loadTrashItems();
+    showToast("휴지통 복원 목록에서 제거했습니다.");
+  } catch (error) {
+    trashMessage.textContent = `제거 실패: ${error.message}`;
+  } finally {
+    setButtonBusy(button, false);
   }
 }
 
@@ -2440,6 +2565,7 @@ if (adminAuthLoginBack) adminAuthLoginBack.addEventListener("click", () => showA
 if (adminAuthRecoveryCopy) adminAuthRecoveryCopy.addEventListener("click", copyAdminRecoveryCode);
 if (adminAuthRecoveryDone) adminAuthRecoveryDone.addEventListener("click", finishAdminRecoveryDialog);
 if (membersButton) membersButton.addEventListener("click", openMembersDialog);
+if (trashButton) trashButton.addEventListener("click", openTrashDialog);
 filesTab.addEventListener("click", () => setView("files"));
 discussionTab.addEventListener("click", () => openDiscussionView(""));
 chatTab.addEventListener("click", () => setView("chat"));
