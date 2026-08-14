@@ -791,3 +791,105 @@ dialog::backdrop { background: rgba(17,19,24,.38); backdrop-filter: blur(5px); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+
+/* Upload-before-commit preview */
+.upload-preview-panel {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid #e0e4e8;
+  border-radius: 12px;
+  background: #f8f9fa;
+}
+.upload-preview-panel.hidden { display: none; }
+.upload-preview-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+  color: #555b64;
+  font-size: 11px;
+}
+.upload-preview-head strong { color: #292d33; font-size: 12px; }
+.upload-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+  gap: 9px;
+}
+.upload-preview-item {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e1e4e8;
+  border-radius: 10px;
+  background: #fff;
+}
+.upload-preview-clickable { cursor: zoom-in; }
+.upload-preview-visual {
+  display: grid;
+  place-items: center;
+  height: 96px;
+  overflow: hidden;
+  background: #eef0f3;
+}
+.upload-preview-visual img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.upload-preview-generic {
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  padding: 8px;
+  color: #707680;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+.upload-preview-generic small { font-size: 9px; font-weight: 650; }
+.upload-preview-info {
+  display: grid;
+  gap: 2px;
+  padding: 8px 30px 8px 9px;
+}
+.upload-preview-info strong {
+  overflow: hidden;
+  color: #34383f;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-preview-info span { color: #858b94; font-size: 10px; }
+.upload-preview-remove {
+  position: absolute;
+  right: 6px;
+  bottom: 7px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #e1e4e8;
+  border-radius: 50%;
+  background: rgba(255,255,255,.94);
+  color: #676d76;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 18px;
+}
+.image-thumbnail img.image-load-failed { opacity: 0; }
+.image-thumbnail:has(img.image-load-failed)::after {
+  content: "이미지 불러오기 실패";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #8a9098;
+  font-size: 11px;
+  font-weight: 700;
+}
+@media (max-width: 640px) {
+  .upload-preview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .upload-preview-head span { display: none; }
+}

@@ -52,6 +52,7 @@ const uploadSelection = document.querySelector("#upload-selection");
 const dropZone = document.querySelector("#drop-zone");
 const uploadLimitNote = document.querySelector("#upload-limit-note");
 const refreshIndexButton = document.querySelector("#refresh-index");
+let uploadPreviewPanel = null;
 
 const manageDialog = document.querySelector("#manage-dialog");
 const manageTitle = document.querySelector("#manage-title");
@@ -101,6 +102,8 @@ let toastTimer = null;
 let memberSessionToken = sessionStorage.getItem(MEMBER_SESSION_KEY) || "";
 let memberUser = null;
 let memberAuthLoading = false;
+let memberAuthInitialized = false;
+let pendingUploadPreviewUrls = [];
 
 let adminSession = {
   token: sessionStorage.getItem(TOKEN_KEY) || "",
@@ -112,16 +115,17 @@ let adminSession = {
 
 
 function captureMemberSessionFromFragment() {
-  if (!window.location.hash) return;
+  if (!window.location.hash) return false;
   const params = new URLSearchParams(window.location.hash.slice(1));
   const token = params.get("vault_session");
-  if (!token) return;
+  if (!token) return false;
 
   memberSessionToken = token;
   sessionStorage.setItem(MEMBER_SESSION_KEY, token);
 
   // 세션 토큰이 주소창/복사 링크에 남지 않도록 즉시 fragment를 제거합니다.
   history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+  return true;
 }
 
 function renderMemberState() {
@@ -202,12 +206,16 @@ async function validateMemberSession() {
 }
 
 async function initializeMemberAuth() {
-  captureMemberSessionFromFragment();
+  if (memberAuthInitialized) return;
+  memberAuthInitialized = true;
+
+  const freshLogin = captureMemberSessionFromFragment();
   renderMemberState();
 
   if (memberSessionToken) {
     const ok = await validateMemberSession();
-    if (ok) showToast(`@${memberUser.login} 계정으로 로그인했습니다.`);
+    // 로그인 직후 한 번만 알리고, 새로고침/재렌더 때는 반복하지 않습니다.
+    if (freshLogin && ok) showToast(`@${memberUser.login} 계정으로 로그인했습니다.`);
   }
 }
 
@@ -375,10 +383,47 @@ function canPreview(file) {
   return ext === "pdf" || PREVIEWABLE_IMAGES.has(ext) || PREVIEWABLE_TEXT.has(ext);
 }
 
-function fileUrl(file) {
+function pagesFileUrl(file) {
+  const path = file.path.split("/").map(encodeURIComponent).join("/");
+  const version = file.modified ? `?v=${encodeURIComponent(file.modified)}` : "";
+  return `${path}${version}`;
+}
+
+function rawFileUrl(file) {
+  const owner = encodeURIComponent(adminSession.owner || githubConfig.owner || inferOwner());
+  const repo = encodeURIComponent(adminSession.repo || githubConfig.repo || inferRepo());
+  const branch = encodeURIComponent(adminSession.branch || githubConfig.branch || "main");
+  const path = file.path.split("/").map(encodeURIComponent).join("/");
+  const version = file.modified ? `?v=${encodeURIComponent(file.modified)}` : "";
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}${version}`;
+}
+
+function fileUrlCandidates(file) {
+  const candidates = [];
   const local = localPreviewUrls.get(file.path);
-  if (local) return local;
-  return file.path.split("/").map(encodeURIComponent).join("/");
+  if (local) candidates.push(local);
+  candidates.push(rawFileUrl(file), pagesFileUrl(file));
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+function fileUrl(file) {
+  return fileUrlCandidates(file)[0];
+}
+
+function bindResilientImage(image, file, onFailure = null) {
+  if (!image || !file) return;
+  const candidates = fileUrlCandidates(file);
+  let index = Math.max(0, candidates.indexOf(image.getAttribute("src")));
+
+  image.addEventListener("error", () => {
+    index += 1;
+    if (index < candidates.length) {
+      image.src = candidates[index];
+      return;
+    }
+    image.classList.add("image-load-failed");
+    if (onFailure) onFailure();
+  });
 }
 
 function cacheLocalPreview(path, blob) {
@@ -567,7 +612,7 @@ function thumbnailHtml(file) {
   const url = fileUrl(file);
   const ext = (file.extension || extensionFromName(file.name)).toLowerCase();
   if (PREVIEWABLE_IMAGES.has(ext)) {
-    return `<div class="file-thumbnail image-thumbnail"><img src="${url}" alt="" loading="lazy" decoding="async" fetchpriority="low" /></div>`;
+    return `<div class="file-thumbnail image-thumbnail"><img src="${url}" data-file-path="${escapeHtml(file.path)}" alt="" loading="lazy" decoding="async" fetchpriority="low" /></div>`;
   }
   // PDF를 카드마다 iframe으로 미리 불러오면 브라우저 PDF 엔진이 여러 번 실행되어
   // 문건함 전체가 크게 느려집니다. PDF 본문은 '보기'를 눌렀을 때만 로드합니다.
@@ -615,6 +660,11 @@ function renderFiles() {
       </article>
     `;
   }).join("");
+
+  grid.querySelectorAll(".image-thumbnail img[data-file-path]").forEach(image => {
+    const file = allFiles.find(item => item.path === image.dataset.filePath);
+    if (file) bindResilientImage(image, file);
+  });
 
   grid.querySelectorAll(".preview-button").forEach(button => {
     button.addEventListener("click", () => {
@@ -669,6 +719,7 @@ function applyImageTransform() {
 }
 
 async function openPreview(file) {
+  previewCopy.classList.remove("hidden");
   const url = fileUrl(file);
   const ext = (file.extension || extensionFromName(file.name)).toLowerCase();
   currentPreviewPath = file.path;
@@ -686,6 +737,10 @@ async function openPreview(file) {
   if (PREVIEWABLE_IMAGES.has(ext)) {
     imageTools.classList.remove("hidden");
     previewBody.innerHTML = `<div class="image-stage"><img class="viewer-image" src="${url}" alt="${escapeHtml(file.name)}" /></div>`;
+    const viewerImage = previewBody.querySelector(".viewer-image");
+    bindResilientImage(viewerImage, file, () => {
+      previewBody.innerHTML = `<div class="preview-message">이미지를 아직 불러오지 못했습니다.<br>잠시 후 다시 열거나 새 탭에서 확인해주세요.</div>`;
+    });
     applyImageTransform();
     updatePreviewNavigation();
     return;
@@ -1051,12 +1106,110 @@ async function performUpload(files) {
   }
 }
 
+function revokePendingUploadPreviewUrls() {
+  for (const url of pendingUploadPreviewUrls) URL.revokeObjectURL(url);
+  pendingUploadPreviewUrls = [];
+}
+
+function ensureUploadPreviewPanel() {
+  if (uploadPreviewPanel?.isConnected) return uploadPreviewPanel;
+  uploadPreviewPanel = document.createElement("div");
+  uploadPreviewPanel.id = "upload-preview-panel";
+  uploadPreviewPanel.className = "upload-preview-panel hidden";
+  uploadPreviewPanel.setAttribute("aria-label", "업로드 전 미리보기");
+  dropZone.insertAdjacentElement("afterend", uploadPreviewPanel);
+  return uploadPreviewPanel;
+}
+
+function openPendingUploadPreview(index) {
+  const file = selectedUploadFiles[index];
+  if (!file) return;
+  const ext = extensionFromName(file.name);
+  if (!PREVIEWABLE_IMAGES.has(ext)) return;
+
+  const url = URL.createObjectURL(file);
+  previewTitle.textContent = `${file.name} · 업로드 전 미리보기`;
+  previewDownload.href = url;
+  previewDownload.setAttribute("download", file.name);
+  previewOpen.href = url;
+  previewCopy.dataset.url = "";
+  previewCopy.classList.add("hidden");
+  currentPreviewPath = "";
+  imageTools.classList.remove("hidden");
+  previewToolbar.classList.remove("hidden");
+  resetImageTransform();
+  previewBody.innerHTML = `<div class="image-stage"><img class="viewer-image" src="${url}" alt="${escapeHtml(file.name)}" /></div>`;
+  if (!previewDialog.open) previewDialog.showModal();
+  applyImageTransform();
+
+  const cleanup = () => {
+    URL.revokeObjectURL(url);
+    previewCopy.classList.remove("hidden");
+    previewDialog.removeEventListener("close", cleanup);
+  };
+  previewDialog.addEventListener("close", cleanup);
+}
+
+function renderUploadSelectionPreview() {
+  const panel = ensureUploadPreviewPanel();
+  revokePendingUploadPreviewUrls();
+
+  if (!selectedUploadFiles.length) {
+    panel.innerHTML = "";
+    panel.classList.add("hidden");
+    return;
+  }
+
+  panel.classList.remove("hidden");
+  const items = selectedUploadFiles.map((file, index) => {
+    const ext = extensionFromName(file.name);
+    let visual = `<div class="upload-preview-generic">${escapeHtml((ext || "FILE").toUpperCase().slice(0, 6))}</div>`;
+    let previewClass = "";
+
+    if (PREVIEWABLE_IMAGES.has(ext)) {
+      const url = URL.createObjectURL(file);
+      pendingUploadPreviewUrls.push(url);
+      visual = `<img src="${url}" alt="${escapeHtml(file.name)}" />`;
+      previewClass = " upload-preview-clickable";
+    } else if (IMAGES.has(ext)) {
+      visual = `<div class="upload-preview-generic"><span>IMG</span><small>브라우저 미리보기 미지원</small></div>`;
+    }
+
+    return `<article class="upload-preview-item${previewClass}" data-upload-preview-index="${index}">
+      <div class="upload-preview-visual">${visual}</div>
+      <div class="upload-preview-info">
+        <strong title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</strong>
+        <span>${humanSize(file.size)}</span>
+      </div>
+      <button class="upload-preview-remove" type="button" data-remove-upload-index="${index}" aria-label="${escapeHtml(file.name)} 선택 해제">×</button>
+    </article>`;
+  }).join("");
+
+  panel.innerHTML = `<div class="upload-preview-head"><strong>업로드 전 미리보기</strong><span>이미지를 누르면 크게 볼 수 있습니다.</span></div><div class="upload-preview-grid">${items}</div>`;
+
+  panel.querySelectorAll(".upload-preview-clickable").forEach(item => {
+    item.addEventListener("click", event => {
+      if (event.target.closest(".upload-preview-remove")) return;
+      openPendingUploadPreview(Number(item.dataset.uploadPreviewIndex));
+    });
+  });
+
+  panel.querySelectorAll(".upload-preview-remove").forEach(button => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.removeUploadIndex);
+      selectedUploadFiles.splice(index, 1);
+      updateUploadSelection();
+    });
+  });
+}
+
 function updateUploadSelection() {
   const files = selectedUploadFiles;
   uploadSelection.textContent = files.length
     ? `${files.length}개 선택 · ${humanSize(files.reduce((sum, file) => sum + file.size, 0))}`
     : "선택된 파일 없음";
   uploadSubmit.disabled = files.length === 0 || !canEdit();
+  renderUploadSelectionPreview();
 }
 
 async function openManageDialog(file) {
@@ -1360,6 +1513,7 @@ function movePreview(direction) {
 window.addEventListener("pagehide", () => {
   for (const url of localPreviewUrls.values()) URL.revokeObjectURL(url);
   localPreviewUrls.clear();
+  revokePendingUploadPreviewUrls();
 });
 
 siteTitle.textContent = config.title || "문건함";
