@@ -3,7 +3,6 @@ const githubConfig = config.github || {};
 
 const siteTitle = document.querySelector("#site-title");
 const siteDescription = document.querySelector("#site-description");
-const repoLink = document.querySelector("#repo-link");
 const grid = document.querySelector("#file-grid");
 const emptyState = document.querySelector("#empty-state");
 const searchInput = document.querySelector("#search");
@@ -15,6 +14,10 @@ const tagFilterRow = document.querySelector("#tag-filter-row");
 const favoritesToggle = document.querySelector("#favorites-toggle");
 const summary = document.querySelector("#summary");
 const toast = document.querySelector("#toast");
+const googleSearchForm = document.querySelector("#google-search-form");
+const googleSearchInput = document.querySelector("#google-search-input");
+const chatgptLaunchForm = document.querySelector("#chatgpt-launch-form");
+const chatgptPromptInput = document.querySelector("#chatgpt-prompt-input");
 
 const previewDialog = document.querySelector("#preview-dialog");
 const previewTitle = document.querySelector("#preview-title");
@@ -2297,9 +2300,33 @@ window.addEventListener("pagehide", () => {
 siteTitle.textContent = config.title || "문건함";
 siteDescription.textContent = config.description || "파일 공유 공간";
 document.title = config.title || "문건함";
-if (config.repoUrl) {
-  repoLink.href = config.repoUrl;
-  repoLink.classList.remove("hidden");
+
+if (googleSearchForm) {
+  googleSearchForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const query = googleSearchInput?.value.trim() || "";
+    if (!query) {
+      googleSearchInput?.focus();
+      return;
+    }
+    window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer");
+  });
+}
+
+if (chatgptLaunchForm) {
+  chatgptLaunchForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const prompt = chatgptPromptInput?.value.trim() || "";
+    window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer");
+    if (!prompt) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(prompt)
+        .then(() => showToast("질문을 복사했습니다. ChatGPT에서 붙여넣어 주세요."))
+        .catch(() => showToast("ChatGPT를 열었습니다. 질문은 직접 복사해 주세요."));
+    } else {
+      showToast("ChatGPT를 열었습니다. 질문은 직접 복사해 주세요.");
+    }
+  });
 }
 
 document.querySelector("#close-preview").addEventListener("click", () => previewDialog.close());

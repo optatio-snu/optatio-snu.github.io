@@ -22,7 +22,6 @@
         <button id="members-button" class="repo-link hidden" type="button">회원 관리</button>
         <span id="admin-status" class="admin-status hidden">관리자 모드</span>
         <button id="admin-button" class="repo-link" type="button">관리</button>
-        <a id="repo-link" class="repo-link hidden" href="#" target="_blank" rel="noreferrer">GitHub ↗</a>
       </div>
     </header>
 
@@ -31,6 +30,20 @@
       <button id="discussion-tab" class="view-tab" type="button" aria-pressed="false">토론</button>
       <button id="chat-tab" class="view-tab" type="button" aria-pressed="false">채팅 <span id="chat-tab-badge" class="tab-badge hidden">0</span></button>
     </nav>
+
+    <section class="quick-tools" aria-label="빠른 검색 도구">
+      <form id="google-search-form" class="quick-tool-form" autocomplete="off">
+        <span class="quick-tool-mark" aria-hidden="true">G</span>
+        <input id="google-search-input" type="search" placeholder="Google에서 검색" aria-label="Google 검색어" />
+        <button class="quick-tool-button" type="submit">Google 검색 ↗</button>
+      </form>
+      <form id="chatgpt-launch-form" class="quick-tool-form" autocomplete="off">
+        <span class="quick-tool-mark chatgpt-mark" aria-hidden="true">AI</span>
+        <input id="chatgpt-prompt-input" type="text" maxlength="4000" placeholder="ChatGPT에 물어볼 내용을 적어두세요" aria-label="ChatGPT 질문" />
+        <button class="quick-tool-button" type="submit">ChatGPT 열기 ↗</button>
+      </form>
+      <p class="quick-tools-note">ChatGPT 질문은 클립보드에 복사한 뒤 새 탭에서 열립니다. 붙여넣기만 하시면 됩니다.</p>
+    </section>
 
     <main>
       <div id="files-view">
