@@ -50,6 +50,7 @@ const uploadInput = document.querySelector("#upload-input");
 const uploadSubmit = document.querySelector("#upload-submit");
 const uploadSelection = document.querySelector("#upload-selection");
 const dropZone = document.querySelector("#drop-zone");
+const uploadLimitNote = document.querySelector("#upload-limit-note");
 const refreshIndexButton = document.querySelector("#refresh-index");
 
 const manageDialog = document.querySelector("#manage-dialog");
@@ -75,6 +76,7 @@ const PREVIEWABLE_IMAGES = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"])
 const PREVIEWABLE_TEXT = new Set(["txt", "md", "csv", "tsv"]);
 const MAX_UPLOAD_BYTES = 95 * 1024 * 1024;
 const LARGE_FILE_WARNING_BYTES = 50 * 1024 * 1024;
+const MEMBER_MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const API_VERSION = "2026-03-10";
 const TOKEN_KEY = "documentVault.githubToken";
 const FAVORITES_KEY = "documentVault.favorites.v1";
@@ -150,6 +152,7 @@ function clearMemberSession(showMessage = false) {
   memberUser = null;
   sessionStorage.removeItem(MEMBER_SESSION_KEY);
   renderMemberState();
+  renderAdminState();
   if (showMessage) showToast("회원 로그아웃이 완료되었습니다.");
 }
 
@@ -184,6 +187,7 @@ async function validateMemberSession() {
     }
 
     memberUser = data.user;
+    renderAdminState();
     return true;
   } catch (error) {
     console.warn("회원 세션 확인 실패", error);
@@ -378,6 +382,24 @@ function isAdmin() {
   return Boolean(adminSession.token);
 }
 
+function isMemberEditor() {
+  return Boolean(memberUser?.login && memberSessionToken);
+}
+
+function canEdit() {
+  return isAdmin() || isMemberEditor();
+}
+
+function currentUploadMaxBytes() {
+  return isAdmin() ? MAX_UPLOAD_BYTES : MEMBER_MAX_UPLOAD_BYTES;
+}
+
+function editorModeLabel() {
+  if (isAdmin()) return "관리자 모드";
+  if (isMemberEditor()) return `회원 편집 · @${memberUser.login}`;
+  return "";
+}
+
 function showToast(message, duration = 2600) {
   clearTimeout(toastTimer);
   toast.textContent = message;
@@ -403,8 +425,9 @@ function setButtonBusy(button, busy, busyText = "처리 중…") {
 
 function renderAdminState() {
   const active = isAdmin();
+  const editable = canEdit();
   adminStatus.classList.toggle("hidden", !active);
-  adminPanel.classList.toggle("hidden", !active);
+  adminPanel.classList.toggle("hidden", !editable);
   adminButton.textContent = active ? "관리 설정" : "관리";
   adminDisconnect.classList.toggle("hidden", !active);
 
@@ -412,6 +435,16 @@ function renderAdminState() {
   githubRepoInput.value = adminSession.repo || "";
   githubBranchInput.value = adminSession.branch || "main";
   githubTokenInput.value = active ? adminSession.token : "";
+
+  if (uploadLimitNote) {
+    uploadLimitNote.textContent = isAdmin()
+      ? "여러 파일 동시 선택 가능 · 파일당 95 MiB 이하"
+      : "회원 편집 · 여러 파일 동시 선택 가능 · 파일당 20 MiB 이하";
+  }
+
+  if (deleteSubmit) {
+    deleteSubmit.classList.toggle("hidden", !active);
+  }
 
   renderFiles();
 }
@@ -524,7 +557,7 @@ function renderFiles() {
   if (activeFolder !== "전체") filterBits.push(activeFolder === "/" ? "최상위 폴더" : `폴더 ${activeFolder}`);
   if (activeTag !== "전체") filterBits.push(`#${activeTag}`);
   if (favoritesOnly) filterBits.push("즐겨찾기");
-  summary.textContent = `총 ${allFiles.length}개 중 ${list.length}개 표시${filterBits.length ? ` · ${filterBits.join(" · ")}` : ""}${isAdmin() ? " · 관리자 모드" : ""}`;
+  summary.textContent = `총 ${allFiles.length}개 중 ${list.length}개 표시${filterBits.length ? ` · ${filterBits.join(" · ")}` : ""}${canEdit() ? ` · ${editorModeLabel()}` : ""}`;
   emptyState.classList.toggle("hidden", list.length !== 0);
 
   grid.innerHTML = list.map(file => {
@@ -550,7 +583,7 @@ function renderFiles() {
           <div class="card-actions">
             ${canPreview(file) ? `<button class="action-button preview-button" type="button" data-path="${safePath}">보기</button>` : ""}
             <a class="action-button" href="${url}" download>받기</a>
-            ${isAdmin() ? `<button class="action-button manage-button" type="button" data-path="${safePath}">관리</button>` : ""}
+            ${canEdit() ? `<button class="action-button manage-button" type="button" data-path="${safePath}">관리</button>` : ""}
           </div>
         </div>
       </article>
@@ -749,12 +782,39 @@ function contentApiPath(path) {
   return repoApiPath(`/contents/${encodedPath}`);
 }
 
+async function memberRequest(path, options = {}) {
+  if (!memberSessionToken || !memberUser?.login) throw new Error("GitHub 회원 로그인이 필요합니다.");
+
+  const headers = {
+    Accept: "application/json",
+    Authorization: `Bearer ${memberSessionToken}`,
+    ...options.headers
+  };
+  const response = await fetch(`${AUTH_WORKER}${path}`, { ...options, headers });
+  let payload = null;
+  const type = response.headers.get("content-type") || "";
+  if (type.includes("application/json")) payload = await response.json().catch(() => null);
+  else if (response.status !== 204) payload = await response.text().catch(() => null);
+
+  if (!response.ok) {
+    const error = new Error(payload?.error || `회원 편집 API 오류 (${response.status})`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
 async function getContentMeta(path) {
-  const query = `?ref=${encodeURIComponent(adminSession.branch)}&t=${Date.now()}`;
-  return githubRequest(`${contentApiPath(path)}${query}`);
+  if (isAdmin()) {
+    const query = `?ref=${encodeURIComponent(adminSession.branch)}&t=${Date.now()}`;
+    return githubRequest(`${contentApiPath(path)}${query}`);
+  }
+  return memberRequest(`/api/content-meta?path=${encodeURIComponent(path)}&t=${Date.now()}`);
 }
 
 async function getBlobBase64(sha) {
+  if (!isAdmin()) throw new Error("이 작업은 관리자 모드에서만 직접 불러올 수 있습니다.");
   const blob = await githubRequest(repoApiPath(`/git/blobs/${encodeURIComponent(sha)}`));
   if (!blob?.content) throw new Error("기존 파일 내용을 불러오지 못했습니다.");
   return blob.content.replace(/\s/g, "");
@@ -787,21 +847,44 @@ function textToBase64(text) {
   return bytesToBase64(new TextEncoder().encode(text));
 }
 
-async function putFile(path, base64Content, message, sha = null) {
-  const body = {
-    message,
-    content: base64Content,
-    branch: adminSession.branch
-  };
-  if (sha) body.sha = sha;
-  return githubRequest(contentApiPath(path), {
+async function putFile(path, base64Content, message, sha = null, mode = "upsert") {
+  if (isAdmin()) {
+    const body = {
+      message,
+      content: base64Content,
+      branch: adminSession.branch
+    };
+    if (sha) body.sha = sha;
+    return githubRequest(contentApiPath(path), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  }
+
+  return memberRequest("/api/content", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      path,
+      content: base64Content,
+      message,
+      expectedSha: sha || undefined,
+      mode
+    })
+  });
+}
+
+async function memberMoveFile(oldPath, newPath) {
+  return memberRequest("/api/move", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ oldPath, newPath })
   });
 }
 
 async function deleteFile(path, sha, message) {
+  if (!isAdmin()) throw new Error("파일 삭제는 관리자 모드에서만 가능합니다.");
   return githubRequest(contentApiPath(path), {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
@@ -817,7 +900,7 @@ async function saveMetadataToGitHub(message = "docs: update metadata") {
     if (error.status !== 404) throw error;
   }
   const serialized = `${JSON.stringify({ version: 1, files: metadata.files || {} }, null, 2)}\n`;
-  await putFile(METADATA_PATH, textToBase64(serialized), message, existing?.sha || null);
+  await putFile(METADATA_PATH, textToBase64(serialized), message, existing?.sha || null, "upsert");
 }
 
 function cleanTags(value) {
@@ -868,10 +951,13 @@ function removeLocalFile(path) {
 }
 
 async function uploadOneFile(file, destinationPath) {
-  if (file.size > MAX_UPLOAD_BYTES) {
-    throw new Error(`${file.name}: 95 MiB를 넘는 파일은 이 웹 업로더로 업로드할 수 없습니다.`);
+  const maxBytes = currentUploadMaxBytes();
+  if (file.size > maxBytes) {
+    throw new Error(isAdmin()
+      ? `${file.name}: 95 MiB를 넘는 파일은 이 웹 업로더로 업로드할 수 없습니다.`
+      : `${file.name}: 회원 업로드는 파일당 20 MiB까지 지원합니다. 더 큰 파일은 관리자 모드를 사용해주세요.`);
   }
-  if (file.size > LARGE_FILE_WARNING_BYTES) {
+  if (isAdmin() && file.size > LARGE_FILE_WARNING_BYTES) {
     const ok = window.confirm(`${file.name}은 ${humanSize(file.size)}입니다. GitHub는 50 MiB 초과 파일을 큰 파일로 경고합니다. 그래도 업로드할까요?`);
     if (!ok) return null;
   }
@@ -892,8 +978,9 @@ async function uploadOneFile(file, destinationPath) {
   await putFile(
     destinationPath,
     base64,
-    existing ? `docs: replace ${destinationPath}` : `docs: upload ${destinationPath}`,
-    existing?.sha || null
+    existing ? `docs(member @${memberUser?.login || "admin"}): replace ${destinationPath}` : `docs(member @${memberUser?.login || "admin"}): upload ${destinationPath}`,
+    existing?.sha || null,
+    existing ? "replace" : "create"
   );
   const record = localFileRecord(destinationPath, file.size);
   upsertLocalFile(record);
@@ -932,7 +1019,7 @@ function updateUploadSelection() {
   uploadSelection.textContent = files.length
     ? `${files.length}개 선택 · ${humanSize(files.reduce((sum, file) => sum + file.size, 0))}`
     : "선택된 파일 없음";
-  uploadSubmit.disabled = files.length === 0;
+  uploadSubmit.disabled = files.length === 0 || !canEdit();
 }
 
 async function openManageDialog(file) {
@@ -942,6 +1029,7 @@ async function openManageDialog(file) {
   manageTags.value = tagsFor(file).join(", ");
   replaceInput.value = "";
   manageMessage.textContent = "";
+  deleteSubmit.classList.toggle("hidden", !isAdmin());
   textEditorWrap.classList.add("hidden");
   textEditor.value = "";
   manageDialog.showModal();
@@ -1030,10 +1118,14 @@ async function renameCurrentFile() {
     }
     if (targetExists) throw new Error("변경하려는 경로에 이미 파일이 있습니다.");
 
-    const meta = await getContentMeta(oldPath);
-    const base64 = await getBlobBase64(meta.sha);
-    await putFile(newPath, base64, `docs: move ${oldPath} to ${newPath}`);
-    await deleteFile(oldPath, meta.sha, `docs: remove old path ${oldPath}`);
+    if (isAdmin()) {
+      const meta = await getContentMeta(oldPath);
+      const base64 = await getBlobBase64(meta.sha);
+      await putFile(newPath, base64, `docs: move ${oldPath} to ${newPath}`, null, "create");
+      await deleteFile(oldPath, meta.sha, `docs: remove old path ${oldPath}`);
+    } else {
+      await memberMoveFile(oldPath, newPath);
+    }
 
     const oldMetadata = metadata.files[oldPath];
     if (oldMetadata) {
@@ -1069,8 +1161,10 @@ async function replaceCurrentFile() {
     manageMessage.textContent = "교체할 파일을 먼저 선택해주세요.";
     return;
   }
-  if (replacement.size > MAX_UPLOAD_BYTES) {
-    manageMessage.textContent = "95 MiB를 넘는 파일은 이 웹 업로더로 교체할 수 없습니다.";
+  if (replacement.size > currentUploadMaxBytes()) {
+    manageMessage.textContent = isAdmin()
+      ? "95 MiB를 넘는 파일은 이 웹 업로더로 교체할 수 없습니다."
+      : "회원 계정은 20 MiB 이하 파일만 교체할 수 있습니다. 더 큰 파일은 관리자 모드를 사용해주세요.";
     return;
   }
 
@@ -1079,7 +1173,7 @@ async function replaceCurrentFile() {
   try {
     const meta = await getContentMeta(currentManageFile.path);
     const base64 = await fileToBase64(replacement);
-    await putFile(currentManageFile.path, base64, `docs: replace ${currentManageFile.path}`, meta.sha);
+    await putFile(currentManageFile.path, base64, `docs(member @${memberUser?.login || "admin"}): replace ${currentManageFile.path}`, meta.sha, "replace");
 
     const updated = localFileRecord(currentManageFile.path, replacement.size);
     upsertLocalFile(updated);
@@ -1101,7 +1195,7 @@ async function saveTextCurrentFile() {
   try {
     const meta = await getContentMeta(currentManageFile.path);
     const content = textEditor.value;
-    await putFile(currentManageFile.path, textToBase64(content), `docs: edit ${currentManageFile.path}`, meta.sha);
+    await putFile(currentManageFile.path, textToBase64(content), `docs(member @${memberUser?.login || "admin"}): edit ${currentManageFile.path}`, meta.sha, "replace");
     const size = new Blob([content]).size;
     const updated = localFileRecord(currentManageFile.path, size);
     upsertLocalFile(updated);
@@ -1117,6 +1211,10 @@ async function saveTextCurrentFile() {
 
 async function deleteCurrentFile() {
   if (!currentManageFile) return;
+  if (!isAdmin()) {
+    manageMessage.textContent = "파일 삭제는 관리자 모드에서만 가능합니다.";
+    return;
+  }
   const file = currentManageFile;
   const ok = window.confirm(`정말 ${file.name} 파일을 삭제할까요?\nGit 기록에는 남지만 현재 사이트에서는 삭제됩니다.`);
   if (!ok) return;

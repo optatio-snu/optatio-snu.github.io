@@ -785,3 +785,9 @@ dialog::backdrop { background: rgba(17,19,24,.38); backdrop-filter: blur(5px); }
   .filter-chip { flex: 0 0 auto; }
   .file-thumbnail { height: 170px; }
 }
+
+.member-status {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

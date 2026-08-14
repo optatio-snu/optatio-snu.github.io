@@ -26,11 +26,11 @@
     </header>
 
     <main>
-      <section id="admin-panel" class="admin-panel hidden" aria-label="관리자 파일 업로드">
+      <section id="admin-panel" class="admin-panel hidden" aria-label="파일 편집">
         <div class="admin-panel-copy">
-          <p class="eyebrow">ADMIN</p>
+          <p class="eyebrow">EDITOR</p>
           <h2>웹에서 바로 파일 관리</h2>
-          <p>업로드하면 <code>files/</code> 아래에 바로 커밋됩니다. 카드의 <strong>관리</strong> 버튼에서 교체·경로 수정·삭제도 할 수 있습니다.</p>
+          <p>로그인한 회원은 <code>files/</code> 아래 파일을 업로드·교체·수정할 수 있습니다. 삭제는 관리자 모드에서만 가능합니다.</p>
         </div>
         <div class="upload-controls">
           <label class="field-label" for="upload-folder">업로드 폴더</label>
@@ -43,7 +43,7 @@
           </div>
           <div id="drop-zone" class="drop-zone" tabindex="0">
             <strong>여기로 파일을 끌어오셔도 됩니다</strong>
-            <span>여러 파일 동시 선택 가능 · 파일당 95 MiB 이하</span>
+            <span id="upload-limit-note">여러 파일 동시 선택 가능</span>
           </div>
           <div class="admin-panel-bottom">
             <span id="upload-selection">선택된 파일 없음</span>
@@ -189,7 +189,7 @@
       <label class="form-field">
         <span>태그</span>
         <input id="manage-tags" class="field-input" type="text" placeholder="예: 회칙, 2026, 회의" />
-        <small>쉼표로 구분해주세요. 태그는 사이트 전체에 표시되며 관리자만 수정할 수 있습니다.</small>
+        <small>쉼표로 구분해주세요. 태그는 사이트 전체에 표시되며 로그인한 편집 회원이 수정할 수 있습니다.</small>
       </label>
       <button id="tags-save" class="secondary-button wide-button" type="button">태그 저장</button>
 
