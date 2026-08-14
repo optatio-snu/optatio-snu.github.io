@@ -31,6 +31,9 @@ const zoomIn = document.querySelector("#zoom-in");
 const zoomReset = document.querySelector("#zoom-reset");
 const rotateImage = document.querySelector("#rotate-image");
 
+const memberStatus = document.querySelector("#member-status");
+const memberButton = document.querySelector("#member-button");
+
 const adminButton = document.querySelector("#admin-button");
 const adminStatus = document.querySelector("#admin-status");
 const adminPanel = document.querySelector("#admin-panel");
@@ -76,6 +79,8 @@ const API_VERSION = "2026-03-10";
 const TOKEN_KEY = "documentVault.githubToken";
 const FAVORITES_KEY = "documentVault.favorites.v1";
 const METADATA_PATH = "metadata.json";
+const AUTH_WORKER = "https://optatio-vault-auth.optatio.workers.dev";
+const MEMBER_SESSION_KEY = "documentVault.memberSession.v1";
 
 let allFiles = [];
 let metadata = { version: 1, files: {} };
@@ -90,6 +95,10 @@ let selectedUploadFiles = [];
 let imageScale = 1;
 let imageRotation = 0;
 let toastTimer = null;
+let memberSessionToken = sessionStorage.getItem(MEMBER_SESSION_KEY) || "";
+let memberUser = null;
+let memberAuthLoading = false;
+
 let adminSession = {
   token: sessionStorage.getItem(TOKEN_KEY) || "",
   owner: githubConfig.owner || inferOwner(),
@@ -97,6 +106,116 @@ let adminSession = {
   branch: githubConfig.branch || "main",
   filesDir: normalizeDir(githubConfig.filesDir || "files")
 };
+
+
+function captureMemberSessionFromFragment() {
+  if (!window.location.hash) return;
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const token = params.get("vault_session");
+  if (!token) return;
+
+  memberSessionToken = token;
+  sessionStorage.setItem(MEMBER_SESSION_KEY, token);
+
+  // 세션 토큰이 주소창/복사 링크에 남지 않도록 즉시 fragment를 제거합니다.
+  history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+}
+
+function renderMemberState() {
+  if (!memberStatus || !memberButton) return;
+
+  memberButton.disabled = memberAuthLoading;
+
+  if (memberAuthLoading) {
+    memberStatus.classList.add("hidden");
+    memberButton.textContent = "로그인 확인 중…";
+    return;
+  }
+
+  if (memberUser?.login) {
+    memberStatus.textContent = `회원 · @${memberUser.login}`;
+    memberStatus.classList.remove("hidden");
+    memberButton.textContent = "로그아웃";
+    memberButton.title = "이 브라우저 탭의 회원 세션을 종료합니다.";
+  } else {
+    memberStatus.classList.add("hidden");
+    memberStatus.textContent = "";
+    memberButton.textContent = "GitHub로 로그인";
+    memberButton.title = "GitHub 계정으로 문건함 회원 인증";
+  }
+}
+
+function clearMemberSession(showMessage = false) {
+  memberSessionToken = "";
+  memberUser = null;
+  sessionStorage.removeItem(MEMBER_SESSION_KEY);
+  renderMemberState();
+  if (showMessage) showToast("회원 로그아웃이 완료되었습니다.");
+}
+
+async function validateMemberSession() {
+  if (!memberSessionToken) {
+    renderMemberState();
+    return false;
+  }
+
+  memberAuthLoading = true;
+  renderMemberState();
+
+  try {
+    const response = await fetch(`${AUTH_WORKER}/api/me`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${memberSessionToken}`
+      },
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      clearMemberSession(false);
+      return false;
+    }
+
+    const data = await response.json();
+    if (!data?.authenticated || !data?.user?.login) {
+      clearMemberSession(false);
+      return false;
+    }
+
+    memberUser = data.user;
+    return true;
+  } catch (error) {
+    console.warn("회원 세션 확인 실패", error);
+    // 네트워크 오류일 때는 세션 자체를 지우지 않습니다.
+    memberUser = null;
+    return false;
+  } finally {
+    memberAuthLoading = false;
+    renderMemberState();
+  }
+}
+
+async function initializeMemberAuth() {
+  captureMemberSessionFromFragment();
+  renderMemberState();
+
+  if (memberSessionToken) {
+    const ok = await validateMemberSession();
+    if (ok) showToast(`@${memberUser.login} 계정으로 로그인했습니다.`);
+  }
+}
+
+function handleMemberButton() {
+  if (memberAuthLoading) return;
+
+  if (memberUser || memberSessionToken) {
+    clearMemberSession(true);
+    return;
+  }
+
+  window.location.href = `${AUTH_WORKER}/auth/login`;
+}
 
 function inferOwner() {
   const host = window.location.hostname;
@@ -1125,6 +1244,7 @@ zoomIn.addEventListener("click", () => { imageScale = Math.min(5, imageScale + 0
 zoomReset.addEventListener("click", () => { imageScale = 1; applyImageTransform(); });
 rotateImage.addEventListener("click", () => { imageRotation = (imageRotation + 90) % 360; applyImageTransform(); });
 
+memberButton.addEventListener("click", handleMemberButton);
 adminButton.addEventListener("click", openAdminDialog);
 adminForm.addEventListener("submit", connectAdmin);
 adminDisconnect.addEventListener("click", disconnectAdmin);
@@ -1170,4 +1290,5 @@ wireDialogCloseButtons();
 updateUploadSelection();
 updateFavoritesToggle();
 renderAdminState();
+initializeMemberAuth();
 loadFiles();
