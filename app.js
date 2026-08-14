@@ -1700,7 +1700,7 @@ function openDiscussionView(documentPath = "") {
     discussionClearDocument.classList.remove("hidden");
     discussionAllButton.classList.remove("active");
   } else {
-    discussionScopeText.textContent = "문건함 전체 토론입니다. 읽기는 누구나 가능하고, 작성은 승인된 회원만 가능합니다.";
+    discussionScopeText.textContent = "Econ Lab 전체 토론입니다. 읽기는 누구나 가능하고, 작성은 승인된 회원만 가능합니다.";
     discussionClearDocument.classList.add("hidden");
     discussionAllButton.classList.add("active");
   }
@@ -2344,9 +2344,9 @@ window.addEventListener("pagehide", () => {
   chatImageUrls.clear();
 });
 
-siteTitle.textContent = config.title || "문건함";
-siteDescription.textContent = config.description || "파일 공유 공간";
-document.title = config.title || "문건함";
+siteTitle.textContent = config.title || "Econ Lab";
+siteDescription.textContent = config.description || "Et cognoscetis veritatem, et veritas liberabit vos.";
+document.title = config.title || "Econ Lab";
 
 const RESEARCH_PROVIDERS = {
   google: { label: "Google", site: "" },
