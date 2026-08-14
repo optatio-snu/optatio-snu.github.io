@@ -20,7 +20,8 @@
       </div>
       <div class="hero-actions">
         <span id="member-status" class="member-status hidden"></span>
-        <button id="member-button" class="repo-link" type="button">GitHub로 로그인</button>
+        <button id="member-button" class="repo-link" type="button">회원 로그인</button>
+        <button id="admin-login-button" class="repo-link admin-login-button" type="button">관리자 로그인</button>
         <button id="members-button" class="repo-link hidden" type="button">회원 관리</button>
       </div>
     </header>
@@ -357,6 +358,56 @@
       <p id="new-chat-message" class="form-message"></p>
       <div class="dialog-form-actions"><button id="new-chat-submit" class="primary-button" type="submit">채팅 시작</button></div>
     </form>
+  </dialog>
+
+  <dialog id="admin-login-dialog" class="small-dialog admin-auth-dialog">
+    <div class="dialog-head">
+      <div><p class="eyebrow">PRIVATE ADMIN</p><h2>관리자 로그인</h2></div>
+      <button class="icon-button dialog-close" type="button" aria-label="닫기">×</button>
+    </div>
+
+    <section id="admin-auth-login-panel" class="admin-auth-panel">
+      <p class="admin-auth-lead">이 로그인은 <strong>optatio-snu 관리자 권한 하나</strong>에만 연결됩니다. 회원은 기존 GitHub 로그인을 사용합니다.</p>
+      <form id="admin-auth-login-form" class="dialog-form" autocomplete="on">
+        <label class="form-field"><span>관리자 아이디</span><input id="admin-auth-username" class="field-input" type="text" autocomplete="username" maxlength="32" required /></label>
+        <label class="form-field"><span>비밀번호</span><input id="admin-auth-password" class="field-input" type="password" autocomplete="current-password" maxlength="128" required /></label>
+        <button id="admin-auth-login-submit" class="primary-button" type="submit">로그인</button>
+      </form>
+      <div class="admin-auth-links"><button id="admin-auth-recover-open" class="text-button" type="button">아이디·비밀번호를 잊으셨나요?</button></div>
+    </section>
+
+    <section id="admin-auth-setup-panel" class="admin-auth-panel hidden">
+      <div class="admin-auth-callout"><strong>최초 1회 설정</strong><span>Cloudflare에 넣은 초기 설정 코드가 있어야 관리자 계정을 만들 수 있습니다.</span></div>
+      <form id="admin-auth-setup-form" class="dialog-form" autocomplete="off">
+        <label class="form-field"><span>새 관리자 아이디</span><input id="admin-auth-setup-username" class="field-input" type="text" autocomplete="username" minlength="5" maxlength="32" placeholder="5~32자" required /></label>
+        <label class="form-field"><span>새 비밀번호</span><input id="admin-auth-setup-password" class="field-input" type="password" autocomplete="new-password" minlength="14" maxlength="128" placeholder="14자 이상" required /></label>
+        <label class="form-field"><span>비밀번호 확인</span><input id="admin-auth-setup-password-confirm" class="field-input" type="password" autocomplete="new-password" minlength="14" maxlength="128" required /></label>
+        <label class="form-field"><span>초기 설정 코드</span><input id="admin-auth-bootstrap-secret" class="field-input" type="password" autocomplete="off" required /><small>Cloudflare Worker Secret의 ADMIN_SETUP_SECRET 값입니다. 사이트나 GitHub에는 저장되지 않습니다.</small></label>
+        <button id="admin-auth-setup-submit" class="primary-button" type="submit">관리자 계정 만들기</button>
+      </form>
+    </section>
+
+    <section id="admin-auth-recover-panel" class="admin-auth-panel hidden">
+      <div class="admin-auth-callout"><strong>계정 복구</strong><span>복구 코드 하나로 관리자 아이디 확인과 비밀번호 재설정을 함께 진행합니다.</span></div>
+      <form id="admin-auth-recover-form" class="dialog-form" autocomplete="off">
+        <label class="form-field"><span>복구 코드</span><input id="admin-auth-recovery-code" class="field-input recovery-code-input" type="text" autocomplete="off" placeholder="XXXX-XXXX-XXXX-..." required /></label>
+        <label class="form-field"><span>새 비밀번호</span><input id="admin-auth-new-password" class="field-input" type="password" autocomplete="new-password" minlength="14" maxlength="128" required /></label>
+        <label class="form-field"><span>새 비밀번호 확인</span><input id="admin-auth-new-password-confirm" class="field-input" type="password" autocomplete="new-password" minlength="14" maxlength="128" required /></label>
+        <button id="admin-auth-recover-submit" class="primary-button" type="submit">아이디 확인 · 비밀번호 재설정</button>
+      </form>
+      <div class="admin-auth-links"><button id="admin-auth-login-back" class="text-button" type="button">로그인으로 돌아가기</button></div>
+    </section>
+
+    <section id="admin-auth-recovery-result" class="admin-auth-panel hidden">
+      <div class="recovery-result-icon">✓</div>
+      <h3>새 복구 코드를 보관해주세요</h3>
+      <p>이 코드는 <strong>지금 한 번만 표시됩니다.</strong> 비밀번호를 잊었을 때 관리자 계정을 복구하는 열쇠입니다.</p>
+      <div class="recovery-code-box"><code id="admin-auth-recovery-result-code"></code><button id="admin-auth-recovery-copy" class="secondary-button" type="button">복사</button></div>
+      <p id="admin-auth-recovered-username" class="admin-auth-recovered-username"></p>
+      <button id="admin-auth-recovery-done" class="primary-button" type="button">보관했습니다</button>
+    </section>
+
+    <p id="admin-auth-message" class="form-message admin-auth-message"></p>
   </dialog>
 
   <dialog id="members-dialog" class="small-dialog members-dialog">

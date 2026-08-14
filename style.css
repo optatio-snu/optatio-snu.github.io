@@ -1092,3 +1092,31 @@ dialog::backdrop { background: rgba(17,19,24,.38); backdrop-filter: blur(5px); }
   .research-tip-grid { grid-template-columns: 1fr; }
   .research-options { align-items: flex-start; flex-direction: column; }
 }
+
+
+/* v6: private local administrator authentication */
+.admin-login-button { border-color: #d7dbe1; background: #f7f8fa; }
+.admin-login-button:hover { background: #eef1f4; }
+.admin-auth-dialog { width: min(520px, calc(100vw - 28px)); }
+.admin-auth-panel { display: grid; gap: 16px; }
+.admin-auth-panel.hidden { display: none; }
+.admin-auth-lead { margin: 0; padding: 14px 15px; border: 1px solid #e6e8ec; border-radius: 15px; background: #fafbfc; color: #69717c; font-size: 12px; line-height: 1.65; }
+.admin-auth-lead strong { color: #20242a; }
+.admin-auth-callout { display: grid; gap: 5px; padding: 14px 15px; border: 1px solid #dce6df; border-radius: 15px; background: #f7fbf8; }
+.admin-auth-callout strong { color: #285d3c; font-size: 12px; }
+.admin-auth-callout span { color: #748279; font-size: 11px; line-height: 1.55; }
+.admin-auth-links { display: flex; justify-content: center; padding-top: 2px; }
+.admin-auth-links .text-button { font-size: 11px; color: #68717c; }
+.admin-auth-message { min-height: 18px; margin-top: 10px; }
+.recovery-code-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .03em; }
+.recovery-result-icon { display: grid; place-items: center; width: 52px; height: 52px; margin: 4px auto 0; border-radius: 50%; background: #e9f5ed; color: #27613d; font-size: 24px; font-weight: 900; }
+#admin-auth-recovery-result h3 { margin: 0; text-align: center; font-size: 18px; }
+#admin-auth-recovery-result > p { margin: 0; text-align: center; color: #6e7681; font-size: 12px; line-height: 1.6; }
+.recovery-code-box { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 10px; border: 1px solid #dfe3e8; border-radius: 15px; background: #f8f9fb; }
+.recovery-code-box code { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 800; letter-spacing: .04em; color: #20242a; }
+.admin-auth-recovered-username { padding: 10px 12px; border-radius: 12px; background: #f5f6f8; color: #333a43 !important; font-weight: 700; }
+@media (max-width: 620px) {
+  .hero-actions { gap: 6px; }
+  .hero-actions .repo-link { padding-left: 10px; padding-right: 10px; }
+  .recovery-code-box { grid-template-columns: 1fr; }
+}

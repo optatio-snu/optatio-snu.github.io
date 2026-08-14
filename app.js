@@ -43,7 +43,35 @@ const rotateImage = document.querySelector("#rotate-image");
 
 const memberStatus = document.querySelector("#member-status");
 const memberButton = document.querySelector("#member-button");
+const adminLoginButton = document.querySelector("#admin-login-button");
 const membersButton = document.querySelector("#members-button");
+const adminLoginDialog = document.querySelector("#admin-login-dialog");
+const adminAuthLoginPanel = document.querySelector("#admin-auth-login-panel");
+const adminAuthSetupPanel = document.querySelector("#admin-auth-setup-panel");
+const adminAuthRecoverPanel = document.querySelector("#admin-auth-recover-panel");
+const adminAuthRecoveryResult = document.querySelector("#admin-auth-recovery-result");
+const adminAuthLoginForm = document.querySelector("#admin-auth-login-form");
+const adminAuthUsername = document.querySelector("#admin-auth-username");
+const adminAuthPassword = document.querySelector("#admin-auth-password");
+const adminAuthLoginSubmit = document.querySelector("#admin-auth-login-submit");
+const adminAuthRecoverOpen = document.querySelector("#admin-auth-recover-open");
+const adminAuthLoginBack = document.querySelector("#admin-auth-login-back");
+const adminAuthSetupForm = document.querySelector("#admin-auth-setup-form");
+const adminAuthSetupUsername = document.querySelector("#admin-auth-setup-username");
+const adminAuthSetupPassword = document.querySelector("#admin-auth-setup-password");
+const adminAuthSetupPasswordConfirm = document.querySelector("#admin-auth-setup-password-confirm");
+const adminAuthBootstrapSecret = document.querySelector("#admin-auth-bootstrap-secret");
+const adminAuthSetupSubmit = document.querySelector("#admin-auth-setup-submit");
+const adminAuthRecoverForm = document.querySelector("#admin-auth-recover-form");
+const adminAuthRecoveryCode = document.querySelector("#admin-auth-recovery-code");
+const adminAuthNewPassword = document.querySelector("#admin-auth-new-password");
+const adminAuthNewPasswordConfirm = document.querySelector("#admin-auth-new-password-confirm");
+const adminAuthRecoverSubmit = document.querySelector("#admin-auth-recover-submit");
+const adminAuthRecoveryResultCode = document.querySelector("#admin-auth-recovery-result-code");
+const adminAuthRecoveryCopy = document.querySelector("#admin-auth-recovery-copy");
+const adminAuthRecoveredUsername = document.querySelector("#admin-auth-recovered-username");
+const adminAuthRecoveryDone = document.querySelector("#admin-auth-recovery-done");
+const adminAuthMessage = document.querySelector("#admin-auth-message");
 const filesTab = document.querySelector("#files-tab");
 const discussionTab = document.querySelector("#discussion-tab");
 const chatTab = document.querySelector("#chat-tab");
@@ -176,6 +204,9 @@ const chatImageUrls = new Map();
 let currentThread = null;
 let discussionsLoading = false;
 let memberAuthInitialized = false;
+let adminAuthConfigured = null;
+let adminAuthPasswordSalt = "";
+let adminAuthPasswordIterations = 600000;
 let pendingUploadPreviewUrls = [];
 
 let adminSession = {
@@ -204,28 +235,35 @@ function renderMemberState() {
   if (!memberStatus || !memberButton) return;
 
   memberButton.disabled = memberAuthLoading;
+  if (adminLoginButton) adminLoginButton.disabled = memberAuthLoading;
 
   if (memberAuthLoading) {
     memberStatus.classList.add("hidden");
     memberButton.textContent = "로그인 확인 중…";
+    if (adminLoginButton) adminLoginButton.classList.add("hidden");
     return;
   }
 
   if (memberUser?.login) {
     const label = memberUser.admin
-      ? "관리자 회원"
+      ? "관리자"
       : memberUser.approved
         ? "승인 회원"
         : memberUser.status === "blocked" ? "차단 회원" : "승인 대기";
     memberStatus.textContent = `${label} · @${memberUser.login}`;
     memberStatus.classList.remove("hidden");
     memberButton.textContent = "로그아웃";
-    memberButton.title = "이 브라우저 탭의 회원 세션을 종료합니다.";
+    memberButton.title = "이 브라우저 탭의 로그인 세션을 종료합니다.";
+    if (adminLoginButton) adminLoginButton.classList.add("hidden");
   } else {
     memberStatus.classList.add("hidden");
     memberStatus.textContent = "";
-    memberButton.textContent = "GitHub로 로그인";
-    memberButton.title = "GitHub 계정으로 문건함 회원 인증";
+    memberButton.textContent = "회원 로그인";
+    memberButton.title = "GitHub 계정으로 회원 로그인";
+    if (adminLoginButton) {
+      adminLoginButton.classList.remove("hidden");
+      adminLoginButton.textContent = "관리자 로그인";
+    }
   }
 
   if (membersButton) membersButton.classList.toggle("hidden", !memberUser?.admin);
@@ -317,6 +355,240 @@ function handleMemberButton() {
   }
 
   window.location.href = `${AUTH_WORKER}/auth/login`;
+}
+
+
+async function fetchAdminAuthStatus() {
+  const response = await fetch(`${AUTH_WORKER}/api/admin-auth/status`, { headers: { Accept: "application/json" }, cache: "no-store" });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || "관리자 로그인 상태를 확인하지 못했습니다.");
+  adminAuthConfigured = Boolean(data?.configured);
+  adminAuthPasswordSalt = String(data?.passwordSalt || "");
+  adminAuthPasswordIterations = Number(data?.passwordIterations || 600000);
+  return data;
+}
+
+function showAdminAuthPanel(name) {
+  const panels = {
+    login: adminAuthLoginPanel,
+    setup: adminAuthSetupPanel,
+    recover: adminAuthRecoverPanel,
+    result: adminAuthRecoveryResult
+  };
+  Object.entries(panels).forEach(([key, panel]) => panel?.classList.toggle("hidden", key !== name));
+  if (adminAuthMessage) adminAuthMessage.textContent = "";
+}
+
+async function openAdminAuthDialog() {
+  if (!adminLoginDialog || memberUser) return;
+  if (adminAuthMessage) adminAuthMessage.textContent = "관리자 로그인 상태를 확인하는 중…";
+  adminLoginDialog.showModal();
+  try {
+    const status = await fetchAdminAuthStatus();
+    if (status.configured) {
+      showAdminAuthPanel("login");
+      if (adminAuthUsername && !adminAuthUsername.value && status.usernameHint) adminAuthUsername.placeholder = status.usernameHint;
+      setTimeout(() => adminAuthUsername?.focus(), 30);
+    } else {
+      showAdminAuthPanel("setup");
+      if (!status.passwordPepperConfigured || !status.bootstrapAvailable) {
+        adminAuthMessage.textContent = "Cloudflare에 ADMIN_PASSWORD_PEPPER와 ADMIN_SETUP_SECRET 두 Secret을 먼저 추가해주세요.";
+      }
+      setTimeout(() => adminAuthSetupUsername?.focus(), 30);
+    }
+  } catch (error) {
+    showAdminAuthPanel("login");
+    adminAuthMessage.textContent = error.message;
+  }
+}
+
+function acceptAdminSession(sessionToken) {
+  memberSessionToken = String(sessionToken || "");
+  if (!memberSessionToken) throw new Error("관리자 세션을 발급받지 못했습니다.");
+  sessionStorage.setItem(MEMBER_SESSION_KEY, memberSessionToken);
+}
+
+function randomBytes(length) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytes;
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value) {
+  let text = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  while (text.length % 4) text += "=";
+  const binary = atob(text);
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+async function deriveAdminPasswordVerifier(password, saltB64, iterations = 600000) {
+  if (String(password || "").length < 14) throw new Error("관리자 비밀번호는 14자 이상이어야 합니다.");
+  if (String(password || "").length > 128) throw new Error("관리자 비밀번호는 128자 이하이어야 합니다.");
+  const salt = base64UrlToBytes(saltB64);
+  if (salt.length !== 16) throw new Error("관리자 비밀번호 salt가 올바르지 않습니다.");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256);
+  return new Uint8Array(bits);
+}
+
+async function hmacAdminProof(verifierBytes, challengeB64) {
+  const key = await crypto.subtle.importKey("raw", verifierBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, base64UrlToBytes(challengeB64));
+  return bytesToBase64Url(new Uint8Array(mac));
+}
+
+async function submitAdminLogin(event) {
+  event.preventDefault();
+  if (!adminAuthUsername?.value || !adminAuthPassword?.value) return;
+  setButtonBusy(adminAuthLoginSubmit, true, "안전하게 확인 중…");
+  adminAuthMessage.textContent = "비밀번호를 이 기기에서 안전하게 검증값으로 변환하는 중…";
+  try {
+    const status = await fetchAdminAuthStatus();
+    if (!status.configured || !adminAuthPasswordSalt) throw new Error("관리자 계정이 아직 설정되지 않았습니다.");
+    const verifier = await deriveAdminPasswordVerifier(adminAuthPassword.value, adminAuthPasswordSalt, adminAuthPasswordIterations);
+    const challengeResponse = await fetch(`${AUTH_WORKER}/api/admin-auth/challenge`, {
+      method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: "{}"
+    });
+    const challengeData = await challengeResponse.json().catch(() => null);
+    if (!challengeResponse.ok) throw new Error(challengeData?.error || `로그인 준비 오류 (${challengeResponse.status})`);
+    const proof = await hmacAdminProof(verifier, challengeData.challenge);
+    const response = await fetch(`${AUTH_WORKER}/api/admin-auth/login`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ username: adminAuthUsername.value.trim(), challengeToken: challengeData.challengeToken, proof })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error || `관리자 로그인 오류 (${response.status})`);
+    acceptAdminSession(data.sessionToken);
+    adminAuthPassword.value = "";
+    const ok = await validateMemberSession();
+    if (!ok) throw new Error("관리자 세션 확인에 실패했습니다.");
+    adminLoginDialog.close();
+    showToast("관리자 계정으로 로그인했습니다.");
+  } catch (error) {
+    adminAuthMessage.textContent = error.message;
+  } finally {
+    setButtonBusy(adminAuthLoginSubmit, false);
+  }
+}
+
+async function submitAdminSetup(event) {
+  event.preventDefault();
+  if (adminAuthSetupPassword.value !== adminAuthSetupPasswordConfirm.value) {
+    adminAuthMessage.textContent = "비밀번호 확인이 일치하지 않습니다.";
+    return;
+  }
+  if (adminAuthSetupPassword.value.length < 14) {
+    adminAuthMessage.textContent = "비밀번호는 14자 이상으로 설정해주세요.";
+    return;
+  }
+  setButtonBusy(adminAuthSetupSubmit, true, "안전하게 설정 중…");
+  adminAuthMessage.textContent = "비밀번호를 이 기기에서 강한 검증값으로 변환하는 중…";
+  try {
+    const passwordSalt = bytesToBase64Url(randomBytes(16));
+    const verifier = await deriveAdminPasswordVerifier(adminAuthSetupPassword.value, passwordSalt, 600000);
+    const response = await fetch(`${AUTH_WORKER}/api/admin-auth/setup`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: adminAuthSetupUsername.value.trim(),
+        passwordVerifier: bytesToBase64Url(verifier),
+        passwordSalt,
+        passwordIterations: 600000,
+        bootstrapSecret: adminAuthBootstrapSecret.value
+      })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error || `관리자 설정 오류 (${response.status})`);
+    acceptAdminSession(data.sessionToken);
+    adminAuthConfigured = true;
+    adminAuthPasswordSalt = passwordSalt;
+    adminAuthPasswordIterations = 600000;
+    adminAuthSetupPassword.value = "";
+    adminAuthSetupPasswordConfirm.value = "";
+    adminAuthBootstrapSecret.value = "";
+    await validateMemberSession();
+    showRecoveryResult(data.recoveryCode, data.username, "관리자 계정이 생성되었습니다.");
+  } catch (error) {
+    adminAuthMessage.textContent = error.message;
+  } finally {
+    setButtonBusy(adminAuthSetupSubmit, false);
+  }
+}
+
+function openAdminRecovery() {
+  showAdminAuthPanel("recover");
+  setTimeout(() => adminAuthRecoveryCode?.focus(), 30);
+}
+
+async function submitAdminRecovery(event) {
+  event.preventDefault();
+  if (adminAuthNewPassword.value !== adminAuthNewPasswordConfirm.value) {
+    adminAuthMessage.textContent = "새 비밀번호 확인이 일치하지 않습니다.";
+    return;
+  }
+  if (adminAuthNewPassword.value.length < 14) {
+    adminAuthMessage.textContent = "새 비밀번호는 14자 이상으로 설정해주세요.";
+    return;
+  }
+  setButtonBusy(adminAuthRecoverSubmit, true, "안전하게 복구 중…");
+  adminAuthMessage.textContent = "새 비밀번호를 이 기기에서 강한 검증값으로 변환하는 중…";
+  try {
+    const passwordSalt = bytesToBase64Url(randomBytes(16));
+    const verifier = await deriveAdminPasswordVerifier(adminAuthNewPassword.value, passwordSalt, 600000);
+    const response = await fetch(`${AUTH_WORKER}/api/admin-auth/recover`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recoveryCode: adminAuthRecoveryCode.value,
+        passwordVerifier: bytesToBase64Url(verifier),
+        passwordSalt,
+        passwordIterations: 600000
+      })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(data?.error || `관리자 복구 오류 (${response.status})`);
+    acceptAdminSession(data.sessionToken);
+    adminAuthPasswordSalt = passwordSalt;
+    adminAuthPasswordIterations = 600000;
+    adminAuthRecoveryCode.value = "";
+    adminAuthNewPassword.value = "";
+    adminAuthNewPasswordConfirm.value = "";
+    await validateMemberSession();
+    showRecoveryResult(data.recoveryCode, data.username, "아이디를 확인하고 비밀번호를 재설정했습니다.");
+  } catch (error) {
+    adminAuthMessage.textContent = error.message;
+  } finally {
+    setButtonBusy(adminAuthRecoverSubmit, false);
+  }
+}
+
+function showRecoveryResult(code, username, message) {
+  showAdminAuthPanel("result");
+  adminAuthRecoveryResultCode.textContent = code || "";
+  adminAuthRecoveredUsername.textContent = `${message} 관리자 아이디: ${username}`;
+}
+
+async function copyAdminRecoveryCode() {
+  const code = adminAuthRecoveryResultCode?.textContent || "";
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+    showToast("복구 코드를 복사했습니다.");
+  } catch {
+    showToast("복사하지 못했습니다. 코드를 직접 저장해주세요.");
+  }
+}
+
+function finishAdminRecoveryDialog() {
+  adminLoginDialog?.close();
+  if (memberUser?.admin) showToast("관리자 로그인 준비가 완료되었습니다.");
 }
 
 function inferOwner() {
@@ -892,7 +1164,7 @@ async function loadFiles(showError = true) {
 }
 
 async function memberRequest(path, options = {}) {
-  if (!memberSessionToken || !memberUser?.login) throw new Error("GitHub 회원 로그인이 필요합니다.");
+  if (!memberSessionToken || !memberUser?.login) throw new Error("로그인이 필요합니다.");
   const headers = {
     Accept: "application/json",
     Authorization: `Bearer ${memberSessionToken}`,
@@ -2159,6 +2431,14 @@ zoomReset.addEventListener("click", () => { imageScale = 1; applyImageTransform(
 rotateImage.addEventListener("click", () => { imageRotation = (imageRotation + 90) % 360; applyImageTransform(); });
 
 memberButton.addEventListener("click", handleMemberButton);
+if (adminLoginButton) adminLoginButton.addEventListener("click", openAdminAuthDialog);
+if (adminAuthLoginForm) adminAuthLoginForm.addEventListener("submit", submitAdminLogin);
+if (adminAuthSetupForm) adminAuthSetupForm.addEventListener("submit", submitAdminSetup);
+if (adminAuthRecoverForm) adminAuthRecoverForm.addEventListener("submit", submitAdminRecovery);
+if (adminAuthRecoverOpen) adminAuthRecoverOpen.addEventListener("click", openAdminRecovery);
+if (adminAuthLoginBack) adminAuthLoginBack.addEventListener("click", () => showAdminAuthPanel("login"));
+if (adminAuthRecoveryCopy) adminAuthRecoveryCopy.addEventListener("click", copyAdminRecoveryCode);
+if (adminAuthRecoveryDone) adminAuthRecoveryDone.addEventListener("click", finishAdminRecoveryDialog);
 if (membersButton) membersButton.addEventListener("click", openMembersDialog);
 filesTab.addEventListener("click", () => setView("files"));
 discussionTab.addEventListener("click", () => openDiscussionView(""));
