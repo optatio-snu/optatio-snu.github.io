@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#f6f7f9" />
   <meta name="description" content="문서, 이미지, 스프레드시트 등을 한곳에서 찾아보고 공유하는 개인 문건함" />
+  <meta name="referrer" content="no-referrer" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://raw.githubusercontent.com https://avatars.githubusercontent.com; connect-src 'self' https://optatio-vault-auth.optatio.workers.dev https://raw.githubusercontent.com; frame-src 'self' blob: https://raw.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com; upgrade-insecure-requests" />
   <title>문건함</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
@@ -20,8 +22,6 @@
         <span id="member-status" class="member-status hidden"></span>
         <button id="member-button" class="repo-link" type="button">GitHub로 로그인</button>
         <button id="members-button" class="repo-link hidden" type="button">회원 관리</button>
-        <span id="admin-status" class="admin-status hidden">관리자 모드</span>
-        <button id="admin-button" class="repo-link" type="button">관리</button>
       </div>
     </header>
 
@@ -29,21 +29,8 @@
       <button id="files-tab" class="view-tab active" type="button" aria-pressed="true">문서</button>
       <button id="discussion-tab" class="view-tab" type="button" aria-pressed="false">토론</button>
       <button id="chat-tab" class="view-tab" type="button" aria-pressed="false">채팅 <span id="chat-tab-badge" class="tab-badge hidden">0</span></button>
+      <button id="advanced-search-tab" class="view-tab" type="button" aria-pressed="false">고급검색</button>
     </nav>
-
-    <section class="quick-tools" aria-label="빠른 검색 도구">
-      <form id="google-search-form" class="quick-tool-form" autocomplete="off">
-        <span class="quick-tool-mark" aria-hidden="true">G</span>
-        <input id="google-search-input" type="search" placeholder="Google에서 검색" aria-label="Google 검색어" />
-        <button class="quick-tool-button" type="submit">Google 검색 ↗</button>
-      </form>
-      <form id="chatgpt-launch-form" class="quick-tool-form" autocomplete="off">
-        <span class="quick-tool-mark chatgpt-mark" aria-hidden="true">AI</span>
-        <input id="chatgpt-prompt-input" type="text" maxlength="4000" placeholder="ChatGPT에 물어볼 내용을 적어두세요" aria-label="ChatGPT 질문" />
-        <button class="quick-tool-button" type="submit">ChatGPT 열기 ↗</button>
-      </form>
-      <p class="quick-tools-note">ChatGPT 질문은 클립보드에 복사한 뒤 새 탭에서 열립니다. 붙여넣기만 하시면 됩니다.</p>
-    </section>
 
     <main>
       <div id="files-view">
@@ -51,7 +38,7 @@
         <div class="admin-panel-copy">
           <p class="eyebrow">EDITOR</p>
           <h2>웹에서 바로 파일 관리</h2>
-          <p>관리자가 승인한 회원만 <code>files/</code> 아래 문서를 작성·업로드·수정·삭제할 수 있습니다. GitHub 로그인만 한 계정은 읽기 전용입니다.</p>
+          <p>관리자가 승인한 회원만 <code>files/</code> 아래 문서를 작성·업로드·수정·삭제할 수 있습니다. 모든 변경은 서버의 GitHub App을 거치며 브라우저 PAT를 사용하지 않습니다.</p>
         </div>
         <div class="upload-controls">
           <label class="field-label" for="upload-folder">업로드 폴더</label>
@@ -179,10 +166,49 @@
           </section>
         </div>
       </section>
+      <section id="advanced-search-view" class="advanced-search-view hidden" aria-label="고급검색">
+        <div class="research-search-hero">
+          <div class="research-search-copy">
+            <p class="eyebrow">RESEARCH SEARCH</p>
+            <h2>고급검색</h2>
+            <p>일반 웹 검색부터 주요 학술 출판사까지 한 화면에서 검색합니다. 별도 API 키 없이 각 공식/검색 페이지를 새 탭에서 엽니다.</p>
+          </div>
+          <div class="research-security-badge"><span>◈</span><strong>외부 API 키 없음</strong><small>검색어만 새 탭으로 전달</small></div>
+        </div>
+
+        <form id="advanced-search-form" class="research-search-card" autocomplete="off">
+          <label class="research-query-wrap">
+            <span class="research-query-icon" aria-hidden="true">⌕</span>
+            <input id="advanced-search-input" type="search" maxlength="800" placeholder="논문, 책, 저자, 주제 또는 질문을 입력하세요" aria-label="고급 검색어" required />
+            <button id="advanced-search-submit" class="research-search-submit" type="submit">검색 ↗</button>
+          </label>
+
+          <div class="research-provider-grid" role="radiogroup" aria-label="검색 서비스">
+            <button class="research-provider active" type="button" data-provider="google" aria-pressed="true"><span class="provider-monogram">G</span><span><strong>Google</strong><small>웹 전체 검색</small></span></button>
+            <button class="research-provider" type="button" data-provider="chatgpt" aria-pressed="false"><span class="provider-monogram">AI</span><span><strong>ChatGPT</strong><small>질문 복사 후 열기</small></span></button>
+            <button class="research-provider" type="button" data-provider="oxford" aria-pressed="false"><span class="provider-monogram">OUP</span><span><strong>Oxford Academic</strong><small>Oxford University Press</small></span></button>
+            <button class="research-provider" type="button" data-provider="springer" aria-pressed="false"><span class="provider-monogram">S</span><span><strong>SpringerLink</strong><small>Springer Nature</small></span></button>
+            <button class="research-provider" type="button" data-provider="cambridge" aria-pressed="false"><span class="provider-monogram">CUP</span><span><strong>Cambridge Core</strong><small>Cambridge University Press</small></span></button>
+          </div>
+
+          <div class="research-options">
+            <label><input id="search-exact-phrase" type="checkbox" /> 정확한 구문으로 검색</label>
+            <label><input id="search-pdf-only" type="checkbox" /> PDF 우선</label>
+            <label class="research-year-field">연도 <input id="search-year-from" type="number" min="1000" max="2100" placeholder="시작" /> <span>–</span> <input id="search-year-to" type="number" min="1000" max="2100" placeholder="끝" /></label>
+          </div>
+          <p id="advanced-search-note" class="research-search-note">Google을 선택했습니다. 검색 결과는 새 탭에서 열립니다.</p>
+        </form>
+
+        <div class="research-tip-grid">
+          <article><span>01</span><h3>출판사 검색</h3><p>Oxford · Springer · Cambridge 선택 시 해당 출판사 도메인으로 범위를 제한해 검색합니다.</p></article>
+          <article><span>02</span><h3>ChatGPT</h3><p>질문은 클립보드로 복사하고 ChatGPT를 엽니다. OpenAI API 키를 사이트에 저장하지 않습니다.</p></article>
+          <article><span>03</span><h3>검색 프라이버시</h3><p>검색을 실행하기 전까지 입력 내용은 이 페이지 밖으로 전송하지 않습니다.</p></article>
+        </div>
+      </section>
     </main>
 
     <footer>
-      <span>문서 · 토론 · 채팅</span>
+      <span>문서 · 토론 · 채팅 · 고급검색</span>
       <span>•</span>
       <span>파일은 이 저장소의 <code>files/</code> 폴더에서 관리됩니다. 즐겨찾기는 현재 브라우저에만 저장됩니다.</span>
     </footer>
@@ -214,44 +240,6 @@
       <a id="preview-download" class="primary-button" href="#" download>다운로드</a>
       <button id="preview-copy" class="secondary-button" type="button">파일 링크 복사</button>
     </div>
-  </dialog>
-
-  <dialog id="admin-dialog" class="small-dialog">
-    <div class="dialog-head">
-      <div>
-        <p class="eyebrow">GITHUB ADMIN</p>
-        <h2>관리자 연결</h2>
-      </div>
-      <button class="icon-button dialog-close" type="button" aria-label="닫기">×</button>
-    </div>
-    <form id="admin-form" class="dialog-form">
-      <div class="security-note">
-        <strong>토큰은 저장소에 저장되지 않습니다.</strong>
-        <span>이 브라우저 탭의 <code>sessionStorage</code>에만 보관되며, 관리자 종료 시 바로 삭제됩니다.</span>
-      </div>
-      <label class="form-field">
-        <span>GitHub 사용자/조직</span>
-        <input id="github-owner" class="field-input" type="text" required />
-      </label>
-      <label class="form-field">
-        <span>저장소</span>
-        <input id="github-repo" class="field-input" type="text" required />
-      </label>
-      <label class="form-field">
-        <span>브랜치</span>
-        <input id="github-branch" class="field-input" type="text" value="main" required />
-      </label>
-      <label class="form-field">
-        <span>Fine-grained PAT</span>
-        <input id="github-token" class="field-input" type="password" placeholder="github_pat_…" autocomplete="off" required />
-        <small>해당 저장소만 선택하고 Repository permissions → Contents를 Read and write로 설정해주세요.</small>
-      </label>
-      <p id="admin-form-message" class="form-message"></p>
-      <div class="dialog-form-actions">
-        <button id="admin-disconnect" class="danger-button hidden" type="button">관리자 종료</button>
-        <button id="admin-connect" class="primary-button" type="submit">연결</button>
-      </div>
-    </form>
   </dialog>
 
   <dialog id="manage-dialog" class="small-dialog">

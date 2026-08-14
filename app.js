@@ -14,10 +14,17 @@ const tagFilterRow = document.querySelector("#tag-filter-row");
 const favoritesToggle = document.querySelector("#favorites-toggle");
 const summary = document.querySelector("#summary");
 const toast = document.querySelector("#toast");
-const googleSearchForm = document.querySelector("#google-search-form");
-const googleSearchInput = document.querySelector("#google-search-input");
-const chatgptLaunchForm = document.querySelector("#chatgpt-launch-form");
-const chatgptPromptInput = document.querySelector("#chatgpt-prompt-input");
+const advancedSearchTab = document.querySelector("#advanced-search-tab");
+const advancedSearchView = document.querySelector("#advanced-search-view");
+const advancedSearchForm = document.querySelector("#advanced-search-form");
+const advancedSearchInput = document.querySelector("#advanced-search-input");
+const advancedSearchSubmit = document.querySelector("#advanced-search-submit");
+const advancedSearchNote = document.querySelector("#advanced-search-note");
+const researchProviderButtons = [...document.querySelectorAll(".research-provider")];
+const searchExactPhrase = document.querySelector("#search-exact-phrase");
+const searchPdfOnly = document.querySelector("#search-pdf-only");
+const searchYearFrom = document.querySelector("#search-year-from");
+const searchYearTo = document.querySelector("#search-year-to");
 
 const previewDialog = document.querySelector("#preview-dialog");
 const previewTitle = document.querySelector("#preview-title");
@@ -97,17 +104,7 @@ const memberApproveSubmit = document.querySelector("#member-approve-submit");
 const membersList = document.querySelector("#members-list");
 const membersMessage = document.querySelector("#members-message");
 
-const adminButton = document.querySelector("#admin-button");
-const adminStatus = document.querySelector("#admin-status");
 const adminPanel = document.querySelector("#admin-panel");
-const adminDialog = document.querySelector("#admin-dialog");
-const adminForm = document.querySelector("#admin-form");
-const adminFormMessage = document.querySelector("#admin-form-message");
-const adminDisconnect = document.querySelector("#admin-disconnect");
-const githubOwnerInput = document.querySelector("#github-owner");
-const githubRepoInput = document.querySelector("#github-repo");
-const githubBranchInput = document.querySelector("#github-branch");
-const githubTokenInput = document.querySelector("#github-token");
 const uploadFolder = document.querySelector("#upload-folder");
 const uploadInput = document.querySelector("#upload-input");
 const uploadSubmit = document.querySelector("#upload-submit");
@@ -138,15 +135,14 @@ const IMAGES = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tif"
 const ARCHIVES = new Set(["zip", "7z", "rar", "tar", "gz", "bz2", "xz"]);
 const PREVIEWABLE_IMAGES = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 const PREVIEWABLE_TEXT = new Set(["txt", "md", "csv", "tsv"]);
-const MAX_UPLOAD_BYTES = 95 * 1024 * 1024;
-const LARGE_FILE_WARNING_BYTES = 50 * 1024 * 1024;
+const BLOCKED_ACTIVE_EXTENSIONS = new Set(["html", "htm", "xhtml", "js", "mjs", "cjs", "css", "svg", "xml", "wasm", "webmanifest"]);
 const MEMBER_MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-const API_VERSION = "2026-03-10";
-const TOKEN_KEY = "documentVault.githubToken";
 const FAVORITES_KEY = "documentVault.favorites.v1";
 const METADATA_PATH = "metadata.json";
 const AUTH_WORKER = "https://optatio-vault-auth.optatio.workers.dev";
 const MEMBER_SESSION_KEY = "documentVault.memberSession.v1";
+// 이전 버전의 브라우저 PAT가 남아 있어도 즉시 제거합니다.
+sessionStorage.removeItem("documentVault.githubToken");
 
 let allFiles = [];
 const localPreviewUrls = new Map();
@@ -166,6 +162,7 @@ let memberSessionToken = sessionStorage.getItem(MEMBER_SESSION_KEY) || "";
 let memberUser = null;
 let memberAuthLoading = false;
 let currentView = "files";
+let activeResearchProvider = "google";
 let discussionDocumentFilter = "";
 let chatRooms = [];
 let currentChatRoom = null;
@@ -182,7 +179,6 @@ let memberAuthInitialized = false;
 let pendingUploadPreviewUrls = [];
 
 let adminSession = {
-  token: sessionStorage.getItem(TOKEN_KEY) || "",
   owner: githubConfig.owner || inferOwner(),
   repo: githubConfig.repo || inferRepo(),
   branch: githubConfig.branch || "main",
@@ -541,31 +537,20 @@ function moveLocalPreview(oldPath, newPath) {
 }
 
 function isAdmin() {
-  return Boolean(adminSession.token);
+  return Boolean(memberUser?.admin && memberUser?.login?.toLowerCase() === "optatio-snu");
 }
 
 function isMemberEditor() {
   return Boolean(memberUser?.login && memberSessionToken && memberUser?.approved && memberUser?.status !== "blocked");
 }
 
-function canDiscuss() {
-  return isMemberEditor();
-}
-
-function canChat() {
-  return isMemberEditor();
-}
-
-function canEdit() {
-  return isAdmin() || isMemberEditor();
-}
-
-function currentUploadMaxBytes() {
-  return isAdmin() ? MAX_UPLOAD_BYTES : MEMBER_MAX_UPLOAD_BYTES;
-}
+function canDiscuss() { return isMemberEditor(); }
+function canChat() { return isMemberEditor(); }
+function canEdit() { return isMemberEditor(); }
+function currentUploadMaxBytes() { return MEMBER_MAX_UPLOAD_BYTES; }
 
 function editorModeLabel() {
-  if (isAdmin()) return "관리자 모드";
+  if (isAdmin()) return `단독 관리자 · @${memberUser.login}`;
   if (isMemberEditor()) return `승인 회원 · @${memberUser.login}`;
   return "";
 }
@@ -594,28 +579,14 @@ function setButtonBusy(button, busy, busyText = "처리 중…") {
 }
 
 function renderAdminState() {
-  const active = isAdmin();
   const editable = canEdit();
-  adminStatus.classList.toggle("hidden", !active);
   adminPanel.classList.toggle("hidden", !editable);
-  adminButton.textContent = active ? "관리 설정" : "관리";
-  adminDisconnect.classList.toggle("hidden", !active);
-
-  githubOwnerInput.value = adminSession.owner || "";
-  githubRepoInput.value = adminSession.repo || "";
-  githubBranchInput.value = adminSession.branch || "main";
-  githubTokenInput.value = active ? adminSession.token : "";
-
   if (uploadLimitNote) {
     uploadLimitNote.textContent = isAdmin()
-      ? "여러 파일 동시 선택 가능 · 파일당 95 MiB 이하"
+      ? "단독 관리자 · 여러 파일 동시 선택 가능 · 파일당 20 MiB 이하"
       : "승인 회원 · 여러 파일 동시 선택 가능 · 파일당 20 MiB 이하";
   }
-
-  if (deleteSubmit) {
-    deleteSubmit.classList.toggle("hidden", !editable);
-  }
-
+  if (deleteSubmit) deleteSubmit.classList.toggle("hidden", !editable);
   renderFiles();
 }
 
@@ -920,58 +891,8 @@ async function loadFiles(showError = true) {
   }
 }
 
-function githubApiUrl(path) {
-  return `https://api.github.com${path}`;
-}
-
-function repoApiPath(suffix = "") {
-  const owner = encodeURIComponent(adminSession.owner);
-  const repo = encodeURIComponent(adminSession.repo);
-  return `/repos/${owner}/${repo}${suffix}`;
-}
-
-async function githubRequest(path, options = {}) {
-  if (!adminSession.token) throw new Error("먼저 관리자 연결을 해주세요.");
-
-  const headers = {
-    Accept: "application/vnd.github+json",
-    Authorization: `Bearer ${adminSession.token}`,
-    "X-GitHub-Api-Version": API_VERSION,
-    ...options.headers
-  };
-
-  const response = await fetch(githubApiUrl(path), { ...options, headers });
-  let payload = null;
-  const contentType = response.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    payload = await response.json().catch(() => null);
-  } else if (response.status !== 204) {
-    payload = await response.text().catch(() => null);
-  }
-
-  if (!response.ok) {
-    const message = payload?.message || `GitHub API 오류 (${response.status})`;
-    const error = new Error(message);
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
-  }
-  return payload;
-}
-
-async function validateAdminConnection() {
-  await githubRequest(repoApiPath());
-  await githubRequest(repoApiPath(`/branches/${encodeURIComponent(adminSession.branch)}`));
-}
-
-function contentApiPath(path) {
-  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-  return repoApiPath(`/contents/${encodedPath}`);
-}
-
 async function memberRequest(path, options = {}) {
   if (!memberSessionToken || !memberUser?.login) throw new Error("GitHub 회원 로그인이 필요합니다.");
-
   const headers = {
     Accept: "application/json",
     Authorization: `Bearer ${memberSessionToken}`,
@@ -982,7 +903,6 @@ async function memberRequest(path, options = {}) {
   const type = response.headers.get("content-type") || "";
   if (type.includes("application/json")) payload = await response.json().catch(() => null);
   else if (response.status !== 204) payload = await response.text().catch(() => null);
-
   if (!response.ok) {
     const error = new Error(payload?.error || `회원 편집 API 오류 (${response.status})`);
     error.status = response.status;
@@ -993,18 +913,7 @@ async function memberRequest(path, options = {}) {
 }
 
 async function getContentMeta(path) {
-  if (isAdmin()) {
-    const query = `?ref=${encodeURIComponent(adminSession.branch)}&t=${Date.now()}`;
-    return githubRequest(`${contentApiPath(path)}${query}`);
-  }
   return memberRequest(`/api/content-meta?path=${encodeURIComponent(path)}&t=${Date.now()}`);
-}
-
-async function getBlobBase64(sha) {
-  if (!isAdmin()) throw new Error("이 작업은 관리자 모드에서만 직접 불러올 수 있습니다.");
-  const blob = await githubRequest(repoApiPath(`/git/blobs/${encodeURIComponent(sha)}`));
-  if (!blob?.content) throw new Error("기존 파일 내용을 불러오지 못했습니다.");
-  return blob.content.replace(/\s/g, "");
 }
 
 function fileToBase64(file) {
@@ -1030,75 +939,31 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
-function textToBase64(text) {
-  return bytesToBase64(new TextEncoder().encode(text));
-}
+function textToBase64(text) { return bytesToBase64(new TextEncoder().encode(text)); }
 
 async function putFile(path, base64Content, message, sha = null, mode = "upsert") {
-  if (isAdmin()) {
-    const body = {
-      message,
-      content: base64Content,
-      branch: adminSession.branch
-    };
-    if (sha) body.sha = sha;
-    return githubRequest(contentApiPath(path), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-  }
-
   return memberRequest("/api/content", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      path,
-      content: base64Content,
-      message,
-      expectedSha: sha || undefined,
-      mode
-    })
+    body: JSON.stringify({ path, content: base64Content, message, expectedSha: sha || undefined, mode })
   });
 }
 
 async function memberMoveFile(oldPath, newPath) {
   return memberRequest("/api/move", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ oldPath, newPath })
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ oldPath, newPath })
   });
 }
 
 async function memberDeleteFile(path) {
   return memberRequest("/api/delete", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path })
-  });
-}
-
-async function deleteFile(path, sha, message) {
-  if (!isAdmin()) throw new Error("파일 삭제는 관리자 모드에서만 가능합니다.");
-  return githubRequest(contentApiPath(path), {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, sha, branch: adminSession.branch })
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path })
   });
 }
 
 async function saveMetadataToGitHub(message = "docs: update metadata") {
-  let existing = null;
-  // 회원 API는 Worker 안에서 최신 SHA를 확인하므로 브라우저에서 같은 조회를 반복하지 않습니다.
-  if (isAdmin()) {
-    try {
-      existing = await getContentMeta(METADATA_PATH);
-    } catch (error) {
-      if (error.status !== 404) throw error;
-    }
-  }
   const serialized = `${JSON.stringify({ version: 1, files: metadata.files || {} }, null, 2)}\n`;
-  await putFile(METADATA_PATH, textToBase64(serialized), message, existing?.sha || null, "upsert");
+  await putFile(METADATA_PATH, textToBase64(serialized), message, null, "upsert");
 }
 
 function cleanTags(value) {
@@ -1148,31 +1013,19 @@ function removeLocalFile(path) {
   renderFiles();
 }
 
+function assertSafeUploadPath(path) {
+  const ext = extensionFromName(String(path || "").split("/").pop() || "").toLowerCase();
+  if (BLOCKED_ACTIVE_EXTENSIONS.has(ext)) {
+    throw new Error("보안을 위해 HTML/JavaScript/CSS/SVG/XML/WASM 같은 실행 가능한 웹 파일은 업로드할 수 없습니다.");
+  }
+}
+
 async function uploadOneFile(file, destinationPath) {
+  assertSafeUploadPath(destinationPath);
   const maxBytes = currentUploadMaxBytes();
-  if (file.size > maxBytes) {
-    throw new Error(isAdmin()
-      ? `${file.name}: 95 MiB를 넘는 파일은 이 웹 업로더로 업로드할 수 없습니다.`
-      : `${file.name}: 회원 업로드는 파일당 20 MiB까지 지원합니다. 더 큰 파일은 관리자 모드를 사용해주세요.`);
-  }
-  if (isAdmin() && file.size > LARGE_FILE_WARNING_BYTES) {
-    const ok = window.confirm(`${file.name}은 ${humanSize(file.size)}입니다. GitHub는 50 MiB 초과 파일을 큰 파일로 경고합니다. 그래도 업로드할까요?`);
-    if (!ok) return null;
-  }
+  if (file.size > maxBytes) throw new Error(`${file.name}: 파일당 20 MiB까지 지원합니다.`);
 
-  let existing = null;
-  if (isAdmin()) {
-    try {
-      existing = await getContentMeta(destinationPath);
-    } catch (error) {
-      if (error.status !== 404) throw error;
-    }
-  } else {
-    // 회원 업로드는 이미 화면에 있는 목록으로 중복 여부를 먼저 판단합니다.
-    // 실제 충돌 검사는 Worker/GitHub가 다시 하므로 안전성은 유지됩니다.
-    existing = allFiles.find(item => item.path === destinationPath) || null;
-  }
-
+  const existing = allFiles.find(item => item.path === destinationPath) || null;
   if (existing) {
     const overwrite = window.confirm(`${destinationPath} 파일이 이미 있습니다. 이 파일로 교체할까요?`);
     if (!overwrite) return null;
@@ -1180,11 +1033,9 @@ async function uploadOneFile(file, destinationPath) {
 
   const base64 = await fileToBase64(file);
   await putFile(
-    destinationPath,
-    base64,
-    existing ? `docs(member @${memberUser?.login || "admin"}): replace ${destinationPath}` : `docs(member @${memberUser?.login || "admin"}): upload ${destinationPath}`,
-    isAdmin() ? (existing?.sha || null) : null,
-    existing ? "replace" : "create"
+    destinationPath, base64,
+    existing ? `docs(member @${memberUser?.login || "member"}): replace ${destinationPath}` : `docs(member @${memberUser?.login || "member"}): upload ${destinationPath}`,
+    null, existing ? "replace" : "create"
   );
 
   cacheLocalPreview(destinationPath, file);
@@ -1333,7 +1184,7 @@ async function openManageDialog(file) {
   manageTags.value = tagsFor(file).join(", ");
   replaceInput.value = "";
   manageMessage.textContent = "";
-  deleteSubmit.classList.toggle("hidden", !isAdmin());
+  deleteSubmit.classList.toggle("hidden", !canEdit());
   textEditorWrap.classList.add("hidden");
   textEditor.value = "";
   manageDialog.showModal();
@@ -1348,15 +1199,8 @@ async function openManageDialog(file) {
       if (!response.ok) throw new Error("fetch failed");
       textEditor.value = await response.text();
       textEditor.placeholder = "";
-    } catch {
-      try {
-        const meta = await getContentMeta(file.path);
-        const base64 = await getBlobBase64(meta.sha);
-        const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
-        textEditor.value = new TextDecoder().decode(bytes);
-      } catch (error) {
-        manageMessage.textContent = `텍스트를 불러오지 못했습니다: ${error.message}`;
-      }
+    } catch (error) {
+      manageMessage.textContent = `텍스트를 불러오지 못했습니다: ${error.message}`;
     } finally {
       textEditor.disabled = false;
     }
@@ -1404,6 +1248,7 @@ async function renameCurrentFile() {
     return;
   }
 
+  try { assertSafeUploadPath(newPath); } catch (error) { manageMessage.textContent = error.message; return; }
   const oldPath = currentManageFile.path;
   if (newPath === oldPath) {
     manageMessage.textContent = "경로가 변경되지 않았습니다.";
@@ -1413,24 +1258,7 @@ async function renameCurrentFile() {
   setButtonBusy(renameSubmit, true);
   manageMessage.textContent = "기존 파일을 읽고 새 경로로 옮기는 중입니다…";
   try {
-    if (isAdmin()) {
-      let targetExists = false;
-      try {
-        await getContentMeta(newPath);
-        targetExists = true;
-      } catch (error) {
-        if (error.status !== 404) throw error;
-      }
-      if (targetExists) throw new Error("변경하려는 경로에 이미 파일이 있습니다.");
-
-      const meta = await getContentMeta(oldPath);
-      const base64 = await getBlobBase64(meta.sha);
-      await putFile(newPath, base64, `docs: move ${oldPath} to ${newPath}`, null, "create");
-      await deleteFile(oldPath, meta.sha, `docs: remove old path ${oldPath}`);
-    } else {
-      // Worker가 대상 경로 충돌과 기존 파일 확인을 한 번에 처리합니다.
-      await memberMoveFile(oldPath, newPath);
-    }
+    await memberMoveFile(oldPath, newPath);
 
     const oldMetadata = metadata.files[oldPath];
     if (oldMetadata) {
@@ -1468,16 +1296,14 @@ async function replaceCurrentFile() {
     return;
   }
   if (replacement.size > currentUploadMaxBytes()) {
-    manageMessage.textContent = isAdmin()
-      ? "95 MiB를 넘는 파일은 이 웹 업로더로 교체할 수 없습니다."
-      : "회원 계정은 20 MiB 이하 파일만 교체할 수 있습니다. 더 큰 파일은 관리자 모드를 사용해주세요.";
+    manageMessage.textContent = "파일당 20 MiB 이하 파일만 교체할 수 있습니다.";
     return;
   }
 
   setButtonBusy(replaceSubmit, true);
   manageMessage.textContent = "파일을 교체하는 중입니다…";
   try {
-    const meta = isAdmin() ? await getContentMeta(currentManageFile.path) : null;
+    const meta = null;
     const base64 = await fileToBase64(replacement);
     await putFile(currentManageFile.path, base64, `docs(member @${memberUser?.login || "admin"}): replace ${currentManageFile.path}`, meta?.sha || null, "replace");
 
@@ -1500,7 +1326,7 @@ async function saveTextCurrentFile() {
   setButtonBusy(textSave, true);
   manageMessage.textContent = "텍스트를 저장하는 중입니다…";
   try {
-    const meta = isAdmin() ? await getContentMeta(currentManageFile.path) : null;
+    const meta = null;
     const content = textEditor.value;
     await putFile(currentManageFile.path, textToBase64(content), `docs(member @${memberUser?.login || "admin"}): edit ${currentManageFile.path}`, meta?.sha || null, "replace");
     const textBlob = new Blob([content], { type: "text/plain;charset=utf-8" });
@@ -1531,12 +1357,7 @@ async function deleteCurrentFile() {
   setButtonBusy(deleteSubmit, true, "삭제 중…");
   manageMessage.textContent = "삭제하는 중입니다…";
   try {
-    if (isAdmin()) {
-      const meta = await getContentMeta(file.path);
-      await deleteFile(file.path, meta.sha, `docs: delete ${file.path}`);
-    } else {
-      await memberDeleteFile(file.path);
-    }
+    await memberDeleteFile(file.path);
 
     if (metadata.files[file.path]) {
       delete metadata.files[file.path];
@@ -1559,76 +1380,30 @@ async function deleteCurrentFile() {
   }
 }
 
-async function connectAdmin(event) {
-  event.preventDefault();
-  adminFormMessage.textContent = "";
-
-  adminSession.owner = githubOwnerInput.value.trim();
-  adminSession.repo = githubRepoInput.value.trim();
-  adminSession.branch = githubBranchInput.value.trim() || "main";
-  adminSession.token = githubTokenInput.value.trim();
-
-  if (!adminSession.owner || !adminSession.repo || !adminSession.token) {
-    adminFormMessage.textContent = "사용자/저장소/토큰을 모두 입력해주세요.";
-    return;
-  }
-
-  const connectButton = document.querySelector("#admin-connect");
-  setButtonBusy(connectButton, true, "확인 중…");
-  try {
-    await validateAdminConnection();
-    sessionStorage.setItem(TOKEN_KEY, adminSession.token);
-    adminFormMessage.textContent = "연결되었습니다. 이 탭에서만 관리자 기능이 활성화됩니다.";
-    renderAdminState();
-    setTimeout(() => adminDialog.close(), 450);
-    showToast("관리자 모드를 활성화했습니다.");
-  } catch (error) {
-    adminSession.token = "";
-    sessionStorage.removeItem(TOKEN_KEY);
-    adminFormMessage.textContent = `연결 실패: ${error.message}`;
-  } finally {
-    setButtonBusy(connectButton, false);
-  }
-}
-
-function disconnectAdmin() {
-  adminSession.token = "";
-  sessionStorage.removeItem(TOKEN_KEY);
-  githubTokenInput.value = "";
-  adminFormMessage.textContent = "관리자 연결을 종료했습니다.";
-  renderAdminState();
-  adminDialog.close();
-  showToast("관리자 모드를 종료했습니다.");
-}
-
-function openAdminDialog() {
-  adminFormMessage.textContent = isAdmin() ? "현재 이 탭에 관리자 토큰이 연결되어 있습니다." : "";
-  githubOwnerInput.value = adminSession.owner || "";
-  githubRepoInput.value = adminSession.repo || "";
-  githubBranchInput.value = adminSession.branch || "main";
-  githubTokenInput.value = adminSession.token || "";
-  adminDialog.showModal();
-}
-
 function setView(view) {
-  currentView = ["discussion", "chat"].includes(view) ? view : "files";
+  currentView = ["discussion", "chat", "advanced-search"].includes(view) ? view : "files";
   const filesActive = currentView === "files";
   const discussionActive = currentView === "discussion";
   const chatActive = currentView === "chat";
+  const advancedActive = currentView === "advanced-search";
 
   filesView.classList.toggle("hidden", !filesActive);
   discussionView.classList.toggle("hidden", !discussionActive);
   chatView.classList.toggle("hidden", !chatActive);
+  advancedSearchView.classList.toggle("hidden", !advancedActive);
   filesTab.classList.toggle("active", filesActive);
   discussionTab.classList.toggle("active", discussionActive);
   chatTab.classList.toggle("active", chatActive);
+  advancedSearchTab.classList.toggle("active", advancedActive);
   filesTab.setAttribute("aria-pressed", String(filesActive));
   discussionTab.setAttribute("aria-pressed", String(discussionActive));
   chatTab.setAttribute("aria-pressed", String(chatActive));
+  advancedSearchTab.setAttribute("aria-pressed", String(advancedActive));
 
   if (discussionActive) loadDiscussions();
   if (chatActive) openChatView();
   else stopChatPolling();
+  if (advancedActive) setTimeout(() => advancedSearchInput?.focus(), 80);
 }
 
 function renderDiscussionPermission() {
@@ -2273,7 +2048,7 @@ function wireDialogCloseButtons() {
     button.addEventListener("click", () => button.closest("dialog")?.close());
   });
 
-  [adminDialog, manageDialog].forEach(dialog => {
+  [manageDialog].forEach(dialog => {
     dialog.addEventListener("click", event => {
       if (event.target === dialog) dialog.close();
     });
@@ -2301,33 +2076,67 @@ siteTitle.textContent = config.title || "문건함";
 siteDescription.textContent = config.description || "파일 공유 공간";
 document.title = config.title || "문건함";
 
-if (googleSearchForm) {
-  googleSearchForm.addEventListener("submit", event => {
-    event.preventDefault();
-    const query = googleSearchInput?.value.trim() || "";
-    if (!query) {
-      googleSearchInput?.focus();
-      return;
-    }
-    window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer");
+const RESEARCH_PROVIDERS = {
+  google: { label: "Google", site: "" },
+  chatgpt: { label: "ChatGPT", site: "" },
+  oxford: { label: "Oxford Academic", site: "academic.oup.com" },
+  springer: { label: "SpringerLink", site: "link.springer.com" },
+  cambridge: { label: "Cambridge Core", site: "cambridge.org/core" }
+};
+
+function setResearchProvider(provider) {
+  if (!RESEARCH_PROVIDERS[provider]) provider = "google";
+  activeResearchProvider = provider;
+  researchProviderButtons.forEach(button => {
+    const active = button.dataset.provider === provider;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
+  const label = RESEARCH_PROVIDERS[provider].label;
+  advancedSearchNote.textContent = provider === "chatgpt"
+    ? "ChatGPT를 선택했습니다. 질문을 복사한 뒤 ChatGPT를 새 탭에서 엽니다."
+    : `${label}을(를) 선택했습니다. 검색 결과는 새 탭에서 열립니다.`;
 }
 
-if (chatgptLaunchForm) {
-  chatgptLaunchForm.addEventListener("submit", event => {
-    event.preventDefault();
-    const prompt = chatgptPromptInput?.value.trim() || "";
+function buildResearchQuery(query, provider) {
+  let q = query.trim();
+  if (searchExactPhrase?.checked && !(/^".*"$/).test(q)) q = `"${q.replace(/"/g, "")}"`;
+  if (searchPdfOnly?.checked && provider !== "chatgpt") q += " filetype:pdf";
+  const from = Number(searchYearFrom?.value || 0);
+  const to = Number(searchYearTo?.value || 0);
+  if (from >= 1000 && from <= 2100) q += ` after:${from - 1}-12-31`;
+  if (to >= 1000 && to <= 2100) q += ` before:${to + 1}-01-01`;
+  const site = RESEARCH_PROVIDERS[provider]?.site;
+  if (site) q = `site:${site} ${q}`;
+  return q;
+}
+
+async function runAdvancedSearch(event) {
+  event?.preventDefault();
+  const query = advancedSearchInput?.value.trim() || "";
+  if (!query) { advancedSearchInput?.focus(); return; }
+  const provider = activeResearchProvider;
+  if (provider === "chatgpt") {
     window.open("https://chatgpt.com/", "_blank", "noopener,noreferrer");
-    if (!prompt) return;
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(prompt)
-        .then(() => showToast("질문을 복사했습니다. ChatGPT에서 붙여넣어 주세요."))
-        .catch(() => showToast("ChatGPT를 열었습니다. 질문은 직접 복사해 주세요."));
+      try {
+        await navigator.clipboard.writeText(query);
+        showToast("질문을 복사했습니다. ChatGPT에서 붙여넣어 주세요.");
+      } catch {
+        showToast("ChatGPT를 열었습니다. 질문은 직접 복사해 주세요.");
+      }
     } else {
       showToast("ChatGPT를 열었습니다. 질문은 직접 복사해 주세요.");
     }
-  });
+    return;
+  }
+  const built = buildResearchQuery(query, provider);
+  window.open(`https://www.google.com/search?q=${encodeURIComponent(built)}`, "_blank", "noopener,noreferrer");
 }
+
+researchProviderButtons.forEach(button => button.addEventListener("click", () => setResearchProvider(button.dataset.provider)));
+advancedSearchForm?.addEventListener("submit", runAdvancedSearch);
+setResearchProvider("google");
 
 document.querySelector("#close-preview").addEventListener("click", () => previewDialog.close());
 previewDialog.addEventListener("click", event => {
@@ -2354,6 +2163,7 @@ if (membersButton) membersButton.addEventListener("click", openMembersDialog);
 filesTab.addEventListener("click", () => setView("files"));
 discussionTab.addEventListener("click", () => openDiscussionView(""));
 chatTab.addEventListener("click", () => setView("chat"));
+advancedSearchTab.addEventListener("click", () => setView("advanced-search"));
 newChatButton.addEventListener("click", openNewChatDialog);
 newChatForm.addEventListener("submit", submitNewChat);
 chatComposeForm.addEventListener("submit", submitChatMessage);
@@ -2367,9 +2177,6 @@ threadForm.addEventListener("submit", submitThread);
 commentForm.addEventListener("submit", submitComment);
 threadDelete.addEventListener("click", deleteCurrentThread);
 memberApproveForm.addEventListener("submit", approveMemberFromForm);
-adminButton.addEventListener("click", openAdminDialog);
-adminForm.addEventListener("submit", connectAdmin);
-adminDisconnect.addEventListener("click", disconnectAdmin);
 renameSubmit.addEventListener("click", renameCurrentFile);
 replaceSubmit.addEventListener("click", replaceCurrentFile);
 textSave.addEventListener("click", saveTextCurrentFile);
