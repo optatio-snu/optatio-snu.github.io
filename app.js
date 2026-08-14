@@ -85,6 +85,7 @@ const AUTH_WORKER = "https://optatio-vault-auth.optatio.workers.dev";
 const MEMBER_SESSION_KEY = "documentVault.memberSession.v1";
 
 let allFiles = [];
+const localPreviewUrls = new Map();
 let metadata = { version: 1, files: {} };
 let activeCategory = "전체";
 let activeFolder = "전체";
@@ -375,7 +376,30 @@ function canPreview(file) {
 }
 
 function fileUrl(file) {
+  const local = localPreviewUrls.get(file.path);
+  if (local) return local;
   return file.path.split("/").map(encodeURIComponent).join("/");
+}
+
+function cacheLocalPreview(path, blob) {
+  const previous = localPreviewUrls.get(path);
+  if (previous) URL.revokeObjectURL(previous);
+  localPreviewUrls.set(path, URL.createObjectURL(blob));
+}
+
+function removeLocalPreview(path) {
+  const previous = localPreviewUrls.get(path);
+  if (previous) URL.revokeObjectURL(previous);
+  localPreviewUrls.delete(path);
+}
+
+function moveLocalPreview(oldPath, newPath) {
+  const previous = localPreviewUrls.get(oldPath);
+  if (!previous) return;
+  const overwritten = localPreviewUrls.get(newPath);
+  if (overwritten) URL.revokeObjectURL(overwritten);
+  localPreviewUrls.delete(oldPath);
+  localPreviewUrls.set(newPath, previous);
 }
 
 function isAdmin() {
@@ -543,10 +567,12 @@ function thumbnailHtml(file) {
   const url = fileUrl(file);
   const ext = (file.extension || extensionFromName(file.name)).toLowerCase();
   if (PREVIEWABLE_IMAGES.has(ext)) {
-    return `<div class="file-thumbnail image-thumbnail"><img src="${url}" alt="" loading="lazy" /></div>`;
+    return `<div class="file-thumbnail image-thumbnail"><img src="${url}" alt="" loading="lazy" decoding="async" fetchpriority="low" /></div>`;
   }
+  // PDF를 카드마다 iframe으로 미리 불러오면 브라우저 PDF 엔진이 여러 번 실행되어
+  // 문건함 전체가 크게 느려집니다. PDF 본문은 '보기'를 눌렀을 때만 로드합니다.
   if (ext === "pdf") {
-    return `<div class="file-thumbnail pdf-thumbnail"><iframe src="${url}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=FitH" title="${escapeHtml(file.name)} 첫 페이지" loading="lazy" tabindex="-1"></iframe><span class="thumbnail-shield" aria-hidden="true"></span></div>`;
+    return `<div class="file-thumbnail generic-thumbnail"><span>PDF</span></div>`;
   }
   return `<div class="file-thumbnail generic-thumbnail"><span>${escapeHtml(extensionOf(file))}</span></div>`;
 }
@@ -702,7 +728,7 @@ async function copyText(text, button) {
 
 async function loadMetadata() {
   try {
-    const response = await fetch(`./${METADATA_PATH}?v=${Date.now()}`, { cache: "no-store" });
+    const response = await fetch(`./${METADATA_PATH}`, { cache: "no-cache" });
     if (!response.ok) throw new Error("metadata not found");
     const data = await response.json();
     metadata = { version: 1, files: data && typeof data.files === "object" && data.files ? data.files : {} };
@@ -714,7 +740,7 @@ async function loadMetadata() {
 async function loadFiles(showError = true) {
   try {
     const [response] = await Promise.all([
-      fetch(`./files.json?v=${Date.now()}`, { cache: "no-store" }),
+      fetch(`./files.json`, { cache: "no-cache" }),
       loadMetadata()
     ]);
     if (!response.ok) throw new Error("files.json not found");
@@ -894,10 +920,13 @@ async function deleteFile(path, sha, message) {
 
 async function saveMetadataToGitHub(message = "docs: update metadata") {
   let existing = null;
-  try {
-    existing = await getContentMeta(METADATA_PATH);
-  } catch (error) {
-    if (error.status !== 404) throw error;
+  // 회원 API는 Worker 안에서 최신 SHA를 확인하므로 브라우저에서 같은 조회를 반복하지 않습니다.
+  if (isAdmin()) {
+    try {
+      existing = await getContentMeta(METADATA_PATH);
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
   }
   const serialized = `${JSON.stringify({ version: 1, files: metadata.files || {} }, null, 2)}\n`;
   await putFile(METADATA_PATH, textToBase64(serialized), message, existing?.sha || null, "upsert");
@@ -963,10 +992,16 @@ async function uploadOneFile(file, destinationPath) {
   }
 
   let existing = null;
-  try {
-    existing = await getContentMeta(destinationPath);
-  } catch (error) {
-    if (error.status !== 404) throw error;
+  if (isAdmin()) {
+    try {
+      existing = await getContentMeta(destinationPath);
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
+  } else {
+    // 회원 업로드는 이미 화면에 있는 목록으로 중복 여부를 먼저 판단합니다.
+    // 실제 충돌 검사는 Worker/GitHub가 다시 하므로 안전성은 유지됩니다.
+    existing = allFiles.find(item => item.path === destinationPath) || null;
   }
 
   if (existing) {
@@ -979,9 +1014,11 @@ async function uploadOneFile(file, destinationPath) {
     destinationPath,
     base64,
     existing ? `docs(member @${memberUser?.login || "admin"}): replace ${destinationPath}` : `docs(member @${memberUser?.login || "admin"}): upload ${destinationPath}`,
-    existing?.sha || null,
+    isAdmin() ? (existing?.sha || null) : null,
     existing ? "replace" : "create"
   );
+
+  cacheLocalPreview(destinationPath, file);
   const record = localFileRecord(destinationPath, file.size);
   upsertLocalFile(record);
   return record;
@@ -1109,21 +1146,22 @@ async function renameCurrentFile() {
   setButtonBusy(renameSubmit, true);
   manageMessage.textContent = "기존 파일을 읽고 새 경로로 옮기는 중입니다…";
   try {
-    let targetExists = false;
-    try {
-      await getContentMeta(newPath);
-      targetExists = true;
-    } catch (error) {
-      if (error.status !== 404) throw error;
-    }
-    if (targetExists) throw new Error("변경하려는 경로에 이미 파일이 있습니다.");
-
     if (isAdmin()) {
+      let targetExists = false;
+      try {
+        await getContentMeta(newPath);
+        targetExists = true;
+      } catch (error) {
+        if (error.status !== 404) throw error;
+      }
+      if (targetExists) throw new Error("변경하려는 경로에 이미 파일이 있습니다.");
+
       const meta = await getContentMeta(oldPath);
       const base64 = await getBlobBase64(meta.sha);
       await putFile(newPath, base64, `docs: move ${oldPath} to ${newPath}`, null, "create");
       await deleteFile(oldPath, meta.sha, `docs: remove old path ${oldPath}`);
     } else {
+      // Worker가 대상 경로 충돌과 기존 파일 확인을 한 번에 처리합니다.
       await memberMoveFile(oldPath, newPath);
     }
 
@@ -1138,6 +1176,7 @@ async function renameCurrentFile() {
       }
     }
     moveFavorite(oldPath, newPath);
+    moveLocalPreview(oldPath, newPath);
 
     const updated = localFileRecord(newPath, currentManageFile.size);
     upsertLocalFile(updated, oldPath);
@@ -1171,10 +1210,11 @@ async function replaceCurrentFile() {
   setButtonBusy(replaceSubmit, true);
   manageMessage.textContent = "파일을 교체하는 중입니다…";
   try {
-    const meta = await getContentMeta(currentManageFile.path);
+    const meta = isAdmin() ? await getContentMeta(currentManageFile.path) : null;
     const base64 = await fileToBase64(replacement);
-    await putFile(currentManageFile.path, base64, `docs(member @${memberUser?.login || "admin"}): replace ${currentManageFile.path}`, meta.sha, "replace");
+    await putFile(currentManageFile.path, base64, `docs(member @${memberUser?.login || "admin"}): replace ${currentManageFile.path}`, meta?.sha || null, "replace");
 
+    cacheLocalPreview(currentManageFile.path, replacement);
     const updated = localFileRecord(currentManageFile.path, replacement.size);
     upsertLocalFile(updated);
     currentManageFile = updated;
@@ -1193,10 +1233,12 @@ async function saveTextCurrentFile() {
   setButtonBusy(textSave, true);
   manageMessage.textContent = "텍스트를 저장하는 중입니다…";
   try {
-    const meta = await getContentMeta(currentManageFile.path);
+    const meta = isAdmin() ? await getContentMeta(currentManageFile.path) : null;
     const content = textEditor.value;
-    await putFile(currentManageFile.path, textToBase64(content), `docs(member @${memberUser?.login || "admin"}): edit ${currentManageFile.path}`, meta.sha, "replace");
-    const size = new Blob([content]).size;
+    await putFile(currentManageFile.path, textToBase64(content), `docs(member @${memberUser?.login || "admin"}): edit ${currentManageFile.path}`, meta?.sha || null, "replace");
+    const textBlob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    cacheLocalPreview(currentManageFile.path, textBlob);
+    const size = textBlob.size;
     const updated = localFileRecord(currentManageFile.path, size);
     upsertLocalFile(updated);
     currentManageFile = updated;
@@ -1233,6 +1275,7 @@ async function deleteCurrentFile() {
       }
     }
     removeFavorite(file.path);
+    removeLocalPreview(file.path);
     removeLocalFile(file.path);
     manageDialog.close();
     currentManageFile = null;
@@ -1313,6 +1356,11 @@ function movePreview(direction) {
   const target = list[index + direction];
   if (target) openPreview(target);
 }
+
+window.addEventListener("pagehide", () => {
+  for (const url of localPreviewUrls.values()) URL.revokeObjectURL(url);
+  localPreviewUrls.clear();
+});
 
 siteTitle.textContent = config.title || "문건함";
 siteDescription.textContent = config.description || "파일 공유 공간";
