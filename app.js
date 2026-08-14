@@ -114,14 +114,14 @@ function normalizeRepoPath(value, ensureFilesDir = true) {
 
   const parts = path.split("/").filter(Boolean);
   if (!parts.length || parts.some(part => part === "." || part === "..")) {
-    throw new Error("올바른 파일 경로를 입력해줘.");
+    throw new Error("올바른 파일 경로를 입력해주세요.");
   }
 
   path = parts.join("/");
   if (ensureFilesDir && path !== adminSession.filesDir && !path.startsWith(`${adminSession.filesDir}/`)) {
     path = `${adminSession.filesDir}/${path}`;
   }
-  if (path === adminSession.filesDir) throw new Error("파일 이름까지 포함한 경로가 필요해.");
+  if (path === adminSession.filesDir) throw new Error("파일 이름까지 포함한 경로가 필요합니다.");
   return path;
 }
 
@@ -368,13 +368,13 @@ async function openPreview(file) {
       const clipped = text.length > 300000 ? `${text.slice(0, 300000)}\n\n…(미리보기는 앞부분만 표시)` : text;
       previewBody.innerHTML = `<pre>${escapeHtml(clipped)}</pre>`;
     } catch {
-      previewBody.innerHTML = `<div class="preview-message">브라우저에서 내용을 읽지 못했어.<br>다운로드 버튼으로 파일을 열어줘.</div>`;
+      previewBody.innerHTML = `<div class="preview-message">브라우저에서 내용을 읽지 못했습니다.<br>다운로드 버튼으로 파일을 열어주세요.</div>`;
     }
     updatePreviewNavigation();
     return;
   }
 
-  previewBody.innerHTML = `<div class="preview-message">이 형식은 브라우저 미리보기를 지원하지 않아.<br>다운로드해서 열어줘.</div>`;
+  previewBody.innerHTML = `<div class="preview-message">이 형식은 브라우저 미리보기를 지원하지 않습니다.<br>다운로드해서 열어주세요.</div>`;
   updatePreviewNavigation();
 }
 
@@ -385,7 +385,7 @@ async function copyText(text, button) {
     button.textContent = "복사됨 ✓";
     setTimeout(() => { button.textContent = old; }, 1200);
   } catch {
-    window.prompt("아래 주소를 복사해줘.", text);
+    window.prompt("아래 주소를 복사해주세요.", text);
   }
 }
 
@@ -400,8 +400,8 @@ async function loadFiles(showError = true) {
     return true;
   } catch (error) {
     if (showError) {
-      summary.textContent = "파일 목록을 불러오지 못했어.";
-      grid.innerHTML = `<div class="preview-message">GitHub Actions가 아직 <code>files.json</code>을 만들지 않았거나 파일을 읽지 못했어.</div>`;
+      summary.textContent = "파일 목록을 불러오지 못했습니다.";
+      grid.innerHTML = `<div class="preview-message">GitHub Actions가 아직 <code>files.json</code>을 만들지 않았거나 파일을 읽지 못했습니다.</div>`;
     }
     return false;
   }
@@ -418,7 +418,7 @@ function repoApiPath(suffix = "") {
 }
 
 async function githubRequest(path, options = {}) {
-  if (!adminSession.token) throw new Error("먼저 관리자 연결을 해줘.");
+  if (!adminSession.token) throw new Error("먼저 관리자 연결을 해주세요.");
 
   const headers = {
     Accept: "application/vnd.github+json",
@@ -463,18 +463,18 @@ async function getContentMeta(path) {
 
 async function getBlobBase64(sha) {
   const blob = await githubRequest(repoApiPath(`/git/blobs/${encodeURIComponent(sha)}`));
-  if (!blob?.content) throw new Error("기존 파일 내용을 불러오지 못했어.");
+  if (!blob?.content) throw new Error("기존 파일 내용을 불러오지 못했습니다.");
   return blob.content.replace(/\s/g, "");
 }
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("파일을 읽지 못했어."));
+    reader.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
     reader.onload = () => {
       const result = String(reader.result || "");
       const comma = result.indexOf(",");
-      if (comma < 0) return reject(new Error("파일 인코딩에 실패했어."));
+      if (comma < 0) return reject(new Error("파일 인코딩에 실패했습니다."));
       resolve(result.slice(comma + 1));
     };
     reader.readAsDataURL(file);
@@ -548,10 +548,10 @@ function removeLocalFile(path) {
 
 async function uploadOneFile(file, destinationPath) {
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new Error(`${file.name}: 95 MiB를 넘는 파일은 이 웹 업로더로 올리지 않도록 막아뒀어.`);
+    throw new Error(`${file.name}: 95 MiB를 넘는 파일은 이 웹 업로더로 업로드할 수 없습니다.`);
   }
   if (file.size > LARGE_FILE_WARNING_BYTES) {
-    const ok = window.confirm(`${file.name}은 ${humanSize(file.size)}야. GitHub는 50 MiB 초과 파일을 큰 파일로 경고해. 그래도 올릴까?`);
+    const ok = window.confirm(`${file.name}은 ${humanSize(file.size)}입니다. GitHub는 50 MiB 초과 파일을 큰 파일로 경고합니다. 그래도 업로드할까요?`);
     if (!ok) return null;
   }
 
@@ -563,7 +563,7 @@ async function uploadOneFile(file, destinationPath) {
   }
 
   if (existing) {
-    const overwrite = window.confirm(`${destinationPath} 파일이 이미 있어. 이 파일로 교체할까?`);
+    const overwrite = window.confirm(`${destinationPath} 파일이 이미 있습니다. 이 파일로 교체할까요?`);
     if (!overwrite) return null;
   }
 
@@ -594,7 +594,7 @@ async function performUpload(files) {
       completed += 1;
       if (result) changed += 1;
     }
-    if (changed) showToast(`${changed}개 파일을 GitHub에 반영했어.`);
+    if (changed) showToast(`${changed}개 파일을 GitHub에 반영했습니다.`);
     selectedUploadFiles = [];
     uploadInput.value = "";
     updateUploadSelection();
@@ -641,7 +641,7 @@ async function openManageDialog(file) {
         const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
         textEditor.value = new TextDecoder().decode(bytes);
       } catch (error) {
-        manageMessage.textContent = `텍스트를 불러오지 못했어: ${error.message}`;
+        manageMessage.textContent = `텍스트를 불러오지 못했습니다: ${error.message}`;
       }
     } finally {
       textEditor.disabled = false;
@@ -661,12 +661,12 @@ async function renameCurrentFile() {
 
   const oldPath = currentManageFile.path;
   if (newPath === oldPath) {
-    manageMessage.textContent = "경로가 바뀌지 않았어.";
+    manageMessage.textContent = "경로가 변경되지 않았습니다.";
     return;
   }
 
   setButtonBusy(renameSubmit, true);
-  manageMessage.textContent = "기존 파일을 읽고 새 경로로 옮기는 중…";
+  manageMessage.textContent = "기존 파일을 읽고 새 경로로 옮기는 중입니다…";
   try {
     let targetExists = false;
     try {
@@ -675,7 +675,7 @@ async function renameCurrentFile() {
     } catch (error) {
       if (error.status !== 404) throw error;
     }
-    if (targetExists) throw new Error("바꾸려는 경로에 이미 파일이 있어.");
+    if (targetExists) throw new Error("변경하려는 경로에 이미 파일이 있습니다.");
 
     const meta = await getContentMeta(oldPath);
     const base64 = await getBlobBase64(meta.sha);
@@ -687,8 +687,8 @@ async function renameCurrentFile() {
     currentManageFile = updated;
     manageTitle.textContent = updated.name;
     managePath.value = updated.path;
-    manageMessage.textContent = "경로와 이름을 바꿨어.";
-    showToast("파일 경로를 변경했어.");
+    manageMessage.textContent = "경로와 이름을 변경했습니다.";
+    showToast("파일 경로를 변경했습니다.");
   } catch (error) {
     manageMessage.textContent = `변경 실패: ${error.message}`;
   } finally {
@@ -700,16 +700,16 @@ async function replaceCurrentFile() {
   if (!currentManageFile) return;
   const replacement = replaceInput.files?.[0];
   if (!replacement) {
-    manageMessage.textContent = "교체할 파일을 먼저 골라줘.";
+    manageMessage.textContent = "교체할 파일을 먼저 선택해주세요.";
     return;
   }
   if (replacement.size > MAX_UPLOAD_BYTES) {
-    manageMessage.textContent = "95 MiB를 넘는 파일은 이 웹 업로더로 교체하지 않도록 막아뒀어.";
+    manageMessage.textContent = "95 MiB를 넘는 파일은 이 웹 업로더로 교체할 수 없습니다.";
     return;
   }
 
   setButtonBusy(replaceSubmit, true);
-  manageMessage.textContent = "파일을 교체하는 중…";
+  manageMessage.textContent = "파일을 교체하는 중입니다…";
   try {
     const meta = await getContentMeta(currentManageFile.path);
     const base64 = await fileToBase64(replacement);
@@ -718,9 +718,9 @@ async function replaceCurrentFile() {
     const updated = localFileRecord(currentManageFile.path, replacement.size);
     upsertLocalFile(updated);
     currentManageFile = updated;
-    manageMessage.textContent = "파일을 교체했어.";
+    manageMessage.textContent = "파일을 교체했습니다.";
     replaceInput.value = "";
-    showToast("파일을 교체했어.");
+    showToast("파일을 교체했습니다.");
   } catch (error) {
     manageMessage.textContent = `교체 실패: ${error.message}`;
   } finally {
@@ -731,7 +731,7 @@ async function replaceCurrentFile() {
 async function saveTextCurrentFile() {
   if (!currentManageFile) return;
   setButtonBusy(textSave, true);
-  manageMessage.textContent = "텍스트를 저장하는 중…";
+  manageMessage.textContent = "텍스트를 저장하는 중입니다…";
   try {
     const meta = await getContentMeta(currentManageFile.path);
     const content = textEditor.value;
@@ -740,8 +740,8 @@ async function saveTextCurrentFile() {
     const updated = localFileRecord(currentManageFile.path, size);
     upsertLocalFile(updated);
     currentManageFile = updated;
-    manageMessage.textContent = "텍스트 내용을 저장했어.";
-    showToast("텍스트 수정 내용을 저장했어.");
+    manageMessage.textContent = "텍스트 내용을 저장했습니다.";
+    showToast("텍스트 수정 내용을 저장했습니다.");
   } catch (error) {
     manageMessage.textContent = `저장 실패: ${error.message}`;
   } finally {
@@ -752,18 +752,18 @@ async function saveTextCurrentFile() {
 async function deleteCurrentFile() {
   if (!currentManageFile) return;
   const file = currentManageFile;
-  const ok = window.confirm(`정말 ${file.name} 파일을 삭제할까?\nGit 기록에는 남지만 현재 사이트에서는 없어져.`);
+  const ok = window.confirm(`정말 ${file.name} 파일을 삭제할까요?\nGit 기록에는 남지만 현재 사이트에서는 삭제됩니다.`);
   if (!ok) return;
 
   setButtonBusy(deleteSubmit, true, "삭제 중…");
-  manageMessage.textContent = "삭제하는 중…";
+  manageMessage.textContent = "삭제하는 중입니다…";
   try {
     const meta = await getContentMeta(file.path);
     await deleteFile(file.path, meta.sha, `docs: delete ${file.path}`);
     removeLocalFile(file.path);
     manageDialog.close();
     currentManageFile = null;
-    showToast("파일을 삭제했어.");
+    showToast("파일을 삭제했습니다.");
   } catch (error) {
     manageMessage.textContent = `삭제 실패: ${error.message}`;
   } finally {
@@ -781,7 +781,7 @@ async function connectAdmin(event) {
   adminSession.token = githubTokenInput.value.trim();
 
   if (!adminSession.owner || !adminSession.repo || !adminSession.token) {
-    adminFormMessage.textContent = "사용자/저장소/토큰을 모두 입력해줘.";
+    adminFormMessage.textContent = "사용자/저장소/토큰을 모두 입력해주세요.";
     return;
   }
 
@@ -790,10 +790,10 @@ async function connectAdmin(event) {
   try {
     await validateAdminConnection();
     sessionStorage.setItem(TOKEN_KEY, adminSession.token);
-    adminFormMessage.textContent = "연결됐어. 이 탭에서만 관리자 기능이 켜져.";
+    adminFormMessage.textContent = "연결되었습니다. 이 탭에서만 관리자 기능이 활성화됩니다.";
     renderAdminState();
     setTimeout(() => adminDialog.close(), 450);
-    showToast("관리자 모드를 켰어.");
+    showToast("관리자 모드를 활성화했습니다.");
   } catch (error) {
     adminSession.token = "";
     sessionStorage.removeItem(TOKEN_KEY);
@@ -807,14 +807,14 @@ function disconnectAdmin() {
   adminSession.token = "";
   sessionStorage.removeItem(TOKEN_KEY);
   githubTokenInput.value = "";
-  adminFormMessage.textContent = "관리자 연결을 종료했어.";
+  adminFormMessage.textContent = "관리자 연결을 종료했습니다.";
   renderAdminState();
   adminDialog.close();
-  showToast("관리자 모드를 종료했어.");
+  showToast("관리자 모드를 종료했습니다.");
 }
 
 function openAdminDialog() {
-  adminFormMessage.textContent = isAdmin() ? "현재 이 탭에 관리자 토큰이 연결돼 있어." : "";
+  adminFormMessage.textContent = isAdmin() ? "현재 이 탭에 관리자 토큰이 연결되어 있습니다." : "";
   githubOwnerInput.value = adminSession.owner || "";
   githubRepoInput.value = adminSession.repo || "";
   githubBranchInput.value = adminSession.branch || "main";
@@ -881,7 +881,7 @@ refreshIndexButton.addEventListener("click", async () => {
   setButtonBusy(refreshIndexButton, true, "불러오는 중…");
   const ok = await loadFiles(false);
   setButtonBusy(refreshIndexButton, false);
-  showToast(ok ? "files.json 목록을 다시 불러왔어." : "목록을 아직 불러오지 못했어.");
+  showToast(ok ? "files.json 목록을 다시 불러왔습니다." : "목록을 아직 불러오지 못했습니다.");
 });
 
 ["dragenter", "dragover"].forEach(type => {
