@@ -36,6 +36,8 @@ const memberButton = document.querySelector("#member-button");
 const membersButton = document.querySelector("#members-button");
 const filesTab = document.querySelector("#files-tab");
 const discussionTab = document.querySelector("#discussion-tab");
+const chatTab = document.querySelector("#chat-tab");
+const chatTabBadge = document.querySelector("#chat-tab-badge");
 const filesView = document.querySelector("#files-view");
 const discussionView = document.querySelector("#discussion-view");
 const discussionList = document.querySelector("#discussion-list");
@@ -62,6 +64,29 @@ const commentForm = document.querySelector("#comment-form");
 const commentBody = document.querySelector("#comment-body");
 const commentSubmit = document.querySelector("#comment-submit");
 const commentPermission = document.querySelector("#comment-permission");
+const chatView = document.querySelector("#chat-view");
+const chatPermission = document.querySelector("#chat-permission");
+const newChatButton = document.querySelector("#new-chat-button");
+const chatRoomList = document.querySelector("#chat-room-list");
+const chatRoomEmpty = document.querySelector("#chat-room-empty");
+const chatPlaceholder = document.querySelector("#chat-placeholder");
+const chatRoomPanel = document.querySelector("#chat-room-panel");
+const chatBackButton = document.querySelector("#chat-back-button");
+const chatRoomTitle = document.querySelector("#chat-room-title");
+const chatRoomMembers = document.querySelector("#chat-room-members");
+const chatMessageList = document.querySelector("#chat-message-list");
+const chatComposeForm = document.querySelector("#chat-compose-form");
+const chatMessageInput = document.querySelector("#chat-message-input");
+const chatImageInput = document.querySelector("#chat-image-input");
+const chatImagePreview = document.querySelector("#chat-image-preview");
+const chatSendButton = document.querySelector("#chat-send-button");
+const newChatDialog = document.querySelector("#new-chat-dialog");
+const newChatForm = document.querySelector("#new-chat-form");
+const newChatName = document.querySelector("#new-chat-name");
+const newChatMembers = document.querySelector("#new-chat-members");
+const newChatMessage = document.querySelector("#new-chat-message");
+const newChatSubmit = document.querySelector("#new-chat-submit");
+
 const membersDialog = document.querySelector("#members-dialog");
 const memberApproveForm = document.querySelector("#member-approve-form");
 const memberApproveLogin = document.querySelector("#member-approve-login");
@@ -139,6 +164,15 @@ let memberUser = null;
 let memberAuthLoading = false;
 let currentView = "files";
 let discussionDocumentFilter = "";
+let chatRooms = [];
+let currentChatRoom = null;
+let chatLastMessageId = 0;
+let chatMessagesLoading = false;
+let chatRoomsTimer = null;
+let chatMessagesTimer = null;
+let pendingChatImage = null;
+let pendingChatImageUrl = "";
+const chatImageUrls = new Map();
 let currentThread = null;
 let discussionsLoading = false;
 let memberAuthInitialized = false;
@@ -197,6 +231,7 @@ function renderMemberState() {
 
   if (membersButton) membersButton.classList.toggle("hidden", !memberUser?.admin);
   renderDiscussionPermission();
+  renderChatPermission();
 }
 
 function clearMemberSession(showMessage = false) {
@@ -205,6 +240,10 @@ function clearMemberSession(showMessage = false) {
   sessionStorage.removeItem(MEMBER_SESSION_KEY);
   renderMemberState();
   renderAdminState();
+  stopChatPolling();
+  chatRooms = [];
+  currentChatRoom = null;
+  if (currentView === "chat") renderChatPermission();
   if (showMessage) showToast("회원 로그아웃이 완료되었습니다.");
 }
 
@@ -507,6 +546,10 @@ function isMemberEditor() {
 }
 
 function canDiscuss() {
+  return isMemberEditor();
+}
+
+function canChat() {
   return isMemberEditor();
 }
 
@@ -1565,15 +1608,24 @@ function openAdminDialog() {
 }
 
 function setView(view) {
-  currentView = view === "discussion" ? "discussion" : "files";
+  currentView = ["discussion", "chat"].includes(view) ? view : "files";
+  const filesActive = currentView === "files";
   const discussionActive = currentView === "discussion";
-  filesView.classList.toggle("hidden", discussionActive);
+  const chatActive = currentView === "chat";
+
+  filesView.classList.toggle("hidden", !filesActive);
   discussionView.classList.toggle("hidden", !discussionActive);
-  filesTab.classList.toggle("active", !discussionActive);
+  chatView.classList.toggle("hidden", !chatActive);
+  filesTab.classList.toggle("active", filesActive);
   discussionTab.classList.toggle("active", discussionActive);
-  filesTab.setAttribute("aria-pressed", String(!discussionActive));
+  chatTab.classList.toggle("active", chatActive);
+  filesTab.setAttribute("aria-pressed", String(filesActive));
   discussionTab.setAttribute("aria-pressed", String(discussionActive));
+  chatTab.setAttribute("aria-pressed", String(chatActive));
+
   if (discussionActive) loadDiscussions();
+  if (chatActive) openChatView();
+  else stopChatPolling();
 }
 
 function renderDiscussionPermission() {
@@ -1603,6 +1655,354 @@ function openDiscussionView(documentPath = "") {
     discussionAllButton.classList.add("active");
   }
   setView("discussion");
+}
+
+
+function renderChatPermission() {
+  if (!chatPermission || !newChatButton) return;
+  const approved = canChat();
+  newChatButton.classList.toggle("hidden", !approved);
+  chatComposeForm?.classList.toggle("chat-compose-disabled", !approved);
+  if (!memberUser?.login) {
+    chatPermission.textContent = "채팅은 GitHub 로그인 후 관리자 승인이 필요합니다.";
+  } else if (memberUser.status === "blocked") {
+    chatPermission.textContent = "현재 이 계정은 채팅 이용이 차단되어 있습니다.";
+  } else if (!memberUser.approved) {
+    chatPermission.textContent = "로그인되었습니다. 관리자 승인 후 채팅을 이용할 수 있습니다.";
+  } else {
+    chatPermission.textContent = `@${memberUser.login} · 채팅 가능`;
+  }
+}
+
+function stopChatPolling() {
+  if (chatRoomsTimer) clearInterval(chatRoomsTimer);
+  if (chatMessagesTimer) clearInterval(chatMessagesTimer);
+  chatRoomsTimer = null;
+  chatMessagesTimer = null;
+}
+
+async function openChatView() {
+  renderChatPermission();
+  stopChatPolling();
+  if (!canChat()) {
+    chatRoomList.innerHTML = "";
+    chatRoomEmpty.classList.remove("hidden");
+    chatRoomEmpty.textContent = memberUser?.login ? "관리자 승인 후 채팅을 이용할 수 있습니다." : "로그인 후 승인된 회원만 채팅을 이용할 수 있습니다.";
+    chatPlaceholder.classList.remove("hidden");
+    chatRoomPanel.classList.add("hidden");
+    updateChatTabBadge(0);
+    return;
+  }
+  chatRoomEmpty.classList.add("hidden");
+  await loadChatRooms();
+  chatRoomsTimer = setInterval(() => {
+    if (currentView === "chat" && canChat()) loadChatRooms(true);
+  }, 5000);
+  chatMessagesTimer = setInterval(() => {
+    if (currentView === "chat" && currentChatRoom && canChat()) loadChatMessages(true);
+  }, 1800);
+}
+
+function updateChatTabBadge(count) {
+  const total = Math.max(0, Number(count || 0));
+  chatTabBadge.textContent = total > 99 ? "99+" : String(total);
+  chatTabBadge.classList.toggle("hidden", total === 0);
+}
+
+function formatChatTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("ko-KR", { hour: "numeric", minute: "2-digit" }).format(date);
+}
+
+function formatChatRoomTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) return formatChatTime(value);
+  return `${date.getMonth() + 1}.${date.getDate()}`;
+}
+
+async function loadChatRooms(silent = false) {
+  if (!canChat()) return;
+  if (!silent) chatRoomList.innerHTML = `<div class="preview-message">채팅방을 불러오는 중…</div>`;
+  try {
+    const data = await memberRequest("/api/chat/rooms");
+    chatRooms = data?.rooms || [];
+    const unread = chatRooms.reduce((sum, room) => sum + Number(room.unread_count || 0), 0);
+    updateChatTabBadge(unread);
+    renderChatRooms();
+    if (currentChatRoom) {
+      const fresh = chatRooms.find(room => room.id === currentChatRoom.id);
+      if (fresh) {
+        currentChatRoom = fresh;
+        renderChatRoomHeader();
+      }
+    }
+  } catch (error) {
+    if (!silent) chatRoomList.innerHTML = `<div class="preview-message">채팅방을 불러오지 못했습니다.<br>${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function roomAvatarHtml(room) {
+  if (room.type === "public") return `<span class="chat-room-avatar chat-room-avatar-public">#</span>`;
+  const others = (room.members || []).filter(m => String(m.login).toLowerCase() !== String(memberUser?.login || "").toLowerCase());
+  const first = others[0];
+  if (first?.avatar_url) return `<img class="chat-room-avatar" src="${escapeHtml(first.avatar_url)}" alt="" loading="lazy" />`;
+  return `<span class="chat-room-avatar">@</span>`;
+}
+
+function renderChatRooms() {
+  if (!chatRooms.length) {
+    chatRoomList.innerHTML = "";
+    chatRoomEmpty.classList.remove("hidden");
+    return;
+  }
+  chatRoomEmpty.classList.add("hidden");
+  chatRoomList.innerHTML = chatRooms.map(room => {
+    const preview = room.last_has_image && !room.last_message ? "사진" : room.last_message || "아직 메시지가 없습니다.";
+    const active = currentChatRoom?.id === room.id ? " active" : "";
+    return `<button class="chat-room-item${active}" type="button" data-room-id="${room.id}">
+      ${roomAvatarHtml(room)}
+      <span class="chat-room-copy"><strong>${escapeHtml(room.name)}</strong><span>${escapeHtml(preview)}</span></span>
+      <span class="chat-room-meta"><time>${escapeHtml(formatChatRoomTime(room.updated_at))}</time>${Number(room.unread_count || 0) ? `<b>${Math.min(99, Number(room.unread_count))}</b>` : ""}</span>
+    </button>`;
+  }).join("");
+  chatRoomList.querySelectorAll(".chat-room-item").forEach(button => {
+    button.addEventListener("click", () => selectChatRoom(Number(button.dataset.roomId)));
+  });
+}
+
+function renderChatRoomHeader() {
+  if (!currentChatRoom) return;
+  chatRoomTitle.textContent = currentChatRoom.name;
+  const members = (currentChatRoom.members || []).map(m => `@${m.login}`);
+  chatRoomMembers.textContent = currentChatRoom.type === "public" ? "승인 회원 전체" : `${members.length}명 · ${members.join(", ")}`;
+}
+
+async function selectChatRoom(roomId) {
+  const room = chatRooms.find(item => item.id === roomId);
+  if (!room) return;
+  currentChatRoom = room;
+  chatLastMessageId = 0;
+  chatMessageList.innerHTML = `<div class="preview-message">메시지를 불러오는 중…</div>`;
+  chatPlaceholder.classList.add("hidden");
+  chatRoomPanel.classList.remove("hidden");
+  chatView.classList.add("room-open");
+  renderChatRoomHeader();
+  renderChatRooms();
+  await loadChatMessages(false);
+  chatMessageInput.focus();
+}
+
+function closeChatRoomMobile() {
+  chatView.classList.remove("room-open");
+}
+
+async function loadChatMessages(incremental = false) {
+  if (!currentChatRoom || chatMessagesLoading || !canChat()) return;
+  chatMessagesLoading = true;
+  try {
+    const after = incremental ? chatLastMessageId : 0;
+    const data = await memberRequest(`/api/chat/rooms/${currentChatRoom.id}/messages?after=${after}`);
+    const messages = data?.messages || [];
+    if (!incremental) {
+      chatMessageList.innerHTML = "";
+      chatLastMessageId = 0;
+    }
+    if (messages.length) {
+      const nearBottom = chatMessageList.scrollHeight - chatMessageList.scrollTop - chatMessageList.clientHeight < 120;
+      appendChatMessages(messages);
+      chatLastMessageId = Math.max(chatLastMessageId, ...messages.map(m => Number(m.id || 0)));
+      await markCurrentChatRead();
+      if (!incremental || nearBottom) chatMessageList.scrollTop = chatMessageList.scrollHeight;
+      if (incremental) loadChatRooms(true);
+    } else if (!incremental && !chatMessageList.children.length) {
+      chatMessageList.innerHTML = `<div class="chat-empty-messages">첫 메시지를 보내보세요.</div>`;
+    }
+  } catch (error) {
+    if (!incremental) chatMessageList.innerHTML = `<div class="preview-message">메시지를 불러오지 못했습니다.<br>${escapeHtml(error.message)}</div>`;
+  } finally {
+    chatMessagesLoading = false;
+  }
+}
+
+function appendChatMessages(messages) {
+  const empty = chatMessageList.querySelector(".chat-empty-messages, .preview-message");
+  if (empty) empty.remove();
+  const html = messages.map(message => {
+    const mine = String(message.author_login).toLowerCase() === String(memberUser?.login || "").toLowerCase();
+    const deleted = Boolean(message.deleted);
+    const avatar = !mine && message.avatar_url ? `<img class="chat-message-avatar" src="${escapeHtml(message.avatar_url)}" alt="" loading="lazy" />` : (!mine ? `<span class="chat-message-avatar chat-avatar-fallback">@</span>` : "");
+    const image = message.has_image && !deleted ? `<button class="chat-message-image-wrap" type="button"><img class="chat-message-image" data-message-id="${message.id}" alt="${escapeHtml(message.image_name || "채팅 이미지")}" /></button>` : "";
+    const body = message.body ? `<div class="chat-bubble${deleted ? " deleted" : ""}">${escapeHtml(message.body).replace(/\n/g, "<br>")}</div>` : "";
+    const canDelete = !deleted && (mine || memberUser?.admin);
+    return `<article class="chat-message-row ${mine ? "mine" : "other"}" data-message-id="${message.id}">
+      ${avatar}
+      <div class="chat-message-stack">
+        ${!mine ? `<span class="chat-message-author">@${escapeHtml(message.author_login)}</span>` : ""}
+        <div class="chat-message-line">
+          ${mine ? `<span class="chat-message-time">${escapeHtml(formatChatTime(message.created_at))}</span>` : ""}
+          <div class="chat-message-content">${image}${body}</div>
+          ${!mine ? `<span class="chat-message-time">${escapeHtml(formatChatTime(message.created_at))}</span>` : ""}
+        </div>
+        ${canDelete ? `<button class="chat-message-delete" type="button" data-message-id="${message.id}">삭제</button>` : ""}
+      </div>
+    </article>`;
+  }).join("");
+  chatMessageList.insertAdjacentHTML("beforeend", html);
+  hydrateChatImages(messages);
+  chatMessageList.querySelectorAll(".chat-message-delete").forEach(button => {
+    if (button.dataset.bound) return;
+    button.dataset.bound = "1";
+    button.addEventListener("click", () => deleteChatMessage(Number(button.dataset.messageId)));
+  });
+}
+
+async function fetchChatImageObjectUrl(messageId) {
+  if (chatImageUrls.has(messageId)) return chatImageUrls.get(messageId);
+  const response = await fetch(`${AUTH_WORKER}/api/chat/messages/${messageId}/image`, {
+    headers: { Authorization: `Bearer ${memberSessionToken}` }, cache: "force-cache"
+  });
+  if (!response.ok) throw new Error("이미지를 불러오지 못했습니다.");
+  const url = URL.createObjectURL(await response.blob());
+  chatImageUrls.set(messageId, url);
+  return url;
+}
+
+function hydrateChatImages(messages) {
+  for (const message of messages) {
+    if (!message.has_image || message.deleted) continue;
+    const image = chatMessageList.querySelector(`.chat-message-image[data-message-id="${message.id}"]`);
+    if (!image || image.dataset.loaded) continue;
+    image.dataset.loaded = "1";
+    fetchChatImageObjectUrl(message.id).then(url => { image.src = url; }).catch(() => { image.alt = "이미지를 불러오지 못했습니다."; });
+    image.closest(".chat-message-image-wrap")?.addEventListener("click", async () => {
+      try {
+        const url = await fetchChatImageObjectUrl(message.id);
+        previewTitle.textContent = message.image_name || "채팅 이미지";
+        previewBody.innerHTML = `<div class="image-stage"><img src="${url}" alt="채팅 이미지" /></div>`;
+        previewToolbar.classList.add("hidden");
+        previewOpen.href = url;
+        previewDownload.href = url;
+        previewDownload.download = message.image_name || "chat-image";
+        previewCopy.dataset.url = "";
+        previewCopy.classList.add("hidden");
+        previewDialog.showModal();
+      } catch (error) { showToast(error.message); }
+    });
+  }
+}
+
+async function markCurrentChatRead() {
+  if (!currentChatRoom || !chatLastMessageId) return;
+  try {
+    await memberRequest(`/api/chat/rooms/${currentChatRoom.id}/read`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messageId: chatLastMessageId })
+    });
+  } catch { /* 다음 갱신 때 다시 시도 */ }
+}
+
+function fileToBase64Payload(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+    reader.onerror = () => reject(reader.error || new Error("이미지를 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function clearPendingChatImage() {
+  pendingChatImage = null;
+  chatImageInput.value = "";
+  if (pendingChatImageUrl) URL.revokeObjectURL(pendingChatImageUrl);
+  pendingChatImageUrl = "";
+  chatImagePreview.classList.add("hidden");
+  chatImagePreview.innerHTML = "";
+}
+
+function handleChatImageSelected() {
+  const file = chatImageInput.files?.[0];
+  clearPendingChatImage();
+  if (!file) return;
+  if (!/^image\/(jpeg|png|gif|webp)$/i.test(file.type)) { showToast("JPG, PNG, GIF, WebP 이미지만 첨부할 수 있습니다."); return; }
+  if (file.size > 1200 * 1024) { showToast("채팅 이미지는 1.2 MiB 이하로 올려주세요."); return; }
+  pendingChatImage = file;
+  pendingChatImageUrl = URL.createObjectURL(file);
+  chatImagePreview.innerHTML = `<img src="${pendingChatImageUrl}" alt="첨부 이미지 미리보기" /><span>${escapeHtml(file.name)}</span><button id="chat-image-remove" type="button">×</button>`;
+  chatImagePreview.classList.remove("hidden");
+  chatImagePreview.querySelector("#chat-image-remove").addEventListener("click", clearPendingChatImage);
+}
+
+async function submitChatMessage(event) {
+  event.preventDefault();
+  if (!currentChatRoom || !canChat()) return;
+  const body = chatMessageInput.value.trim();
+  if (!body && !pendingChatImage) return;
+  setButtonBusy(chatSendButton, true, "전송 중…");
+  try {
+    let image = null;
+    if (pendingChatImage) image = { name: pendingChatImage.name, mime: pendingChatImage.type, data: await fileToBase64Payload(pendingChatImage) };
+    const data = await memberRequest(`/api/chat/rooms/${currentChatRoom.id}/messages`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body, image })
+    });
+    chatMessageInput.value = "";
+    chatMessageInput.style.height = "auto";
+    clearPendingChatImage();
+    if (data?.message) {
+      appendChatMessages([data.message]);
+      chatLastMessageId = Math.max(chatLastMessageId, Number(data.message.id || 0));
+      chatMessageList.scrollTop = chatMessageList.scrollHeight;
+    }
+    loadChatRooms(true);
+  } catch (error) {
+    showToast(error.message, 4200);
+  } finally {
+    setButtonBusy(chatSendButton, false);
+  }
+}
+
+async function deleteChatMessage(messageId) {
+  if (!window.confirm("이 메시지를 삭제할까요?")) return;
+  try {
+    await memberRequest(`/api/chat/messages/${messageId}`, { method: "DELETE" });
+    await loadChatMessages(false);
+    loadChatRooms(true);
+  } catch (error) { showToast(error.message, 4200); }
+}
+
+async function openNewChatDialog() {
+  if (!canChat()) return;
+  newChatMessage.textContent = "";
+  newChatMembers.innerHTML = `<div class="preview-message">회원 목록을 불러오는 중…</div>`;
+  newChatDialog.showModal();
+  try {
+    const data = await memberRequest("/api/chat/members");
+    const members = (data?.members || []).filter(m => !m.self);
+    newChatMembers.innerHTML = members.map(member => `
+      <label class="new-chat-member">
+        <input type="checkbox" value="${escapeHtml(member.login)}" />
+        ${member.avatar_url ? `<img src="${escapeHtml(member.avatar_url)}" alt="" />` : `<span class="chat-room-avatar">@</span>`}
+        <span><strong>@${escapeHtml(member.login)}</strong>${member.admin ? `<small>관리자</small>` : ""}</span>
+      </label>`).join("") || `<p class="discussion-muted">함께 채팅할 다른 승인 회원이 아직 없습니다.</p>`;
+  } catch (error) { newChatMembers.innerHTML = ""; newChatMessage.textContent = error.message; }
+}
+
+async function submitNewChat(event) {
+  event.preventDefault();
+  const members = Array.from(newChatMembers.querySelectorAll('input[type="checkbox"]:checked')).map(input => input.value);
+  if (!members.length) { newChatMessage.textContent = "대화할 회원을 선택해주세요."; return; }
+  setButtonBusy(newChatSubmit, true, "생성 중…");
+  try {
+    const data = await memberRequest("/api/chat/rooms", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ members, name: newChatName.value.trim() })
+    });
+    newChatDialog.close();
+    newChatName.value = "";
+    await loadChatRooms();
+    if (data?.room?.id) selectChatRoom(Number(data.room.id));
+  } catch (error) { newChatMessage.textContent = error.message; }
+  finally { setButtonBusy(newChatSubmit, false); }
 }
 
 async function publicWorkerRequest(path, options = {}) {
@@ -1888,6 +2288,10 @@ window.addEventListener("pagehide", () => {
   for (const url of localPreviewUrls.values()) URL.revokeObjectURL(url);
   localPreviewUrls.clear();
   revokePendingUploadPreviewUrls();
+  stopChatPolling();
+  if (pendingChatImageUrl) URL.revokeObjectURL(pendingChatImageUrl);
+  for (const url of chatImageUrls.values()) URL.revokeObjectURL(url);
+  chatImageUrls.clear();
 });
 
 siteTitle.textContent = config.title || "문건함";
@@ -1922,6 +2326,13 @@ memberButton.addEventListener("click", handleMemberButton);
 if (membersButton) membersButton.addEventListener("click", openMembersDialog);
 filesTab.addEventListener("click", () => setView("files"));
 discussionTab.addEventListener("click", () => openDiscussionView(""));
+chatTab.addEventListener("click", () => setView("chat"));
+newChatButton.addEventListener("click", openNewChatDialog);
+newChatForm.addEventListener("submit", submitNewChat);
+chatComposeForm.addEventListener("submit", submitChatMessage);
+chatImageInput.addEventListener("change", handleChatImageSelected);
+chatBackButton.addEventListener("click", closeChatRoomMobile);
+chatMessageInput.addEventListener("input", () => { chatMessageInput.style.height = "auto"; chatMessageInput.style.height = `${Math.min(120, chatMessageInput.scrollHeight)}px`; });
 discussionAllButton.addEventListener("click", () => openDiscussionView(""));
 discussionClearDocument.addEventListener("click", () => openDiscussionView(""));
 newThreadButton.addEventListener("click", () => openNewThread());

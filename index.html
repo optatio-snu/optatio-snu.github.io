@@ -29,6 +29,7 @@
     <nav class="view-tabs" aria-label="문건함 보기 전환">
       <button id="files-tab" class="view-tab active" type="button" aria-pressed="true">문서</button>
       <button id="discussion-tab" class="view-tab" type="button" aria-pressed="false">토론</button>
+      <button id="chat-tab" class="view-tab" type="button" aria-pressed="false">채팅 <span id="chat-tab-badge" class="tab-badge hidden">0</span></button>
     </nav>
 
     <main>
@@ -124,10 +125,51 @@
           <p>승인된 회원이 첫 토론을 시작할 수 있습니다.</p>
         </div>
       </section>
+
+      <section id="chat-view" class="chat-view hidden" aria-label="채팅">
+        <div class="chat-shell">
+          <aside class="chat-sidebar">
+            <div class="chat-sidebar-head">
+              <div><p class="eyebrow">CHAT</p><h2>채팅</h2></div>
+              <button id="new-chat-button" class="primary-button compact-button hidden" type="button">새 채팅</button>
+            </div>
+            <p id="chat-permission" class="discussion-permission">승인된 회원만 채팅을 이용할 수 있습니다.</p>
+            <div id="chat-room-list" class="chat-room-list"></div>
+            <div id="chat-room-empty" class="chat-room-empty hidden">참여 중인 채팅방이 없습니다.</div>
+          </aside>
+
+          <section class="chat-main">
+            <div id="chat-placeholder" class="chat-placeholder">
+              <div class="empty-icon">☏</div>
+              <h2>채팅방을 선택해주세요</h2>
+              <p>승인된 회원끼리 1:1 또는 단체 대화를 나눌 수 있습니다.</p>
+            </div>
+            <div id="chat-room-panel" class="chat-room-panel hidden">
+              <header class="chat-room-head">
+                <button id="chat-back-button" class="icon-button chat-back-button" type="button" aria-label="채팅방 목록으로 돌아가기">←</button>
+                <div>
+                  <h2 id="chat-room-title">채팅</h2>
+                  <p id="chat-room-members" class="chat-room-members"></p>
+                </div>
+              </header>
+              <div id="chat-message-list" class="chat-message-list" aria-live="polite"></div>
+              <div id="chat-image-preview" class="chat-image-preview hidden"></div>
+              <form id="chat-compose-form" class="chat-compose-form">
+                <label class="chat-attach-button" title="이미지 첨부">
+                  ＋
+                  <input id="chat-image-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp" />
+                </label>
+                <textarea id="chat-message-input" class="chat-message-input" rows="1" maxlength="3000" placeholder="메시지를 입력하세요"></textarea>
+                <button id="chat-send-button" class="primary-button chat-send-button" type="submit">전송</button>
+              </form>
+            </div>
+          </section>
+        </div>
+      </section>
     </main>
 
     <footer>
-      <span>GitHub Pages로 만든 정적 문건함</span>
+      <span>문서 · 토론 · 채팅</span>
       <span>•</span>
       <span>파일은 이 저장소의 <code>files/</code> 폴더에서 관리됩니다. 즐겨찾기는 현재 브라우저에만 저장됩니다.</span>
     </footer>
@@ -293,6 +335,27 @@
       <div class="dialog-form-actions"><button id="comment-submit" class="primary-button" type="submit">댓글 등록</button></div>
     </form>
     <p id="comment-permission" class="discussion-permission"></p>
+  </dialog>
+
+
+  <dialog id="new-chat-dialog" class="small-dialog new-chat-dialog">
+    <div class="dialog-head">
+      <div><p class="eyebrow">NEW CHAT</p><h2>새 채팅</h2></div>
+      <button class="icon-button dialog-close" type="button" aria-label="닫기">×</button>
+    </div>
+    <form id="new-chat-form" class="dialog-form">
+      <label class="form-field">
+        <span>채팅방 이름 <small>(단체방일 때 선택)</small></span>
+        <input id="new-chat-name" class="field-input" type="text" maxlength="80" placeholder="예: 연구팀 단톡방" />
+      </label>
+      <div class="form-field">
+        <span>대화 상대</span>
+        <div id="new-chat-members" class="new-chat-members"></div>
+        <small>한 명만 선택하면 1:1 채팅, 여러 명을 선택하면 단체 채팅이 만들어집니다.</small>
+      </div>
+      <p id="new-chat-message" class="form-message"></p>
+      <div class="dialog-form-actions"><button id="new-chat-submit" class="primary-button" type="submit">채팅 시작</button></div>
+    </form>
   </dialog>
 
   <dialog id="members-dialog" class="small-dialog members-dialog">
